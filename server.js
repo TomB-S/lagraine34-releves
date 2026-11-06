@@ -1226,4 +1226,6 @@ if (
     process.exit(1);
   }
   console.log(`Serveur démarré sur http://localhost:${port}`);
+  // The value was validated by startServer(); nothing else is printed.
+  console.log(`Canal Cyclos : ${process.env.CYCLOS_CHANNEL || "(par defaut)"}`);
 }

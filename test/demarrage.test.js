@@ -9,7 +9,7 @@ const ROOT = new URL("../", import.meta.url);
 function run(args, env) {
   const child = spawn(process.execPath, args, {
     cwd: ROOT,
-    env: { ...process.env, ...env },
+    env: { ...process.env, CYCLOS_CHANNEL: "", ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -33,7 +33,7 @@ test("node server.js : écoute sur PORT, annonce l'adresse, sert la page de conn
     for (let i = 0; i < 100 && !output().includes("Serveur démarré"); i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 30));
     }
-    assert.equal(output().trim(), `Serveur démarré sur http://localhost:${port}`);
+    assert.equal(output().trim(), `Serveur démarré sur http://localhost:${port}\nCanal Cyclos : (par defaut)`);
     const res = await fetch(`http://127.0.0.1:${port}/`);
     assert.equal(res.status, 200);
     assert.match(await res.text(), /<h1>Connexion<\/h1>/);
