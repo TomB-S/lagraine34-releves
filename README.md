@@ -97,6 +97,42 @@ externe, aucun vrai identifiant (les identifiants des tests sont fictifs).
 - `test/statique.test.js`, `test/charte.test.js`, `test/demarrage.test.js` :
   fichiers statiques, charte graphique, démarrage.
 
+## Comprendre les tests
+
+Les fichiers de `test/` et `test-support/` sont commentés en français pour être relus : chaque fichier commence
+par un bloc qui dit ce qu'il vérifie, et chaque test est précédé de son intention.
+Commencez par **`test/statique.test.js`** : son premier test est expliqué pas à pas et les notions de base
+(`node:test`, `assert`, `async`/`await`, en-têtes HTTP, `Buffer`) y sont définies une fois pour toutes.
+
+| Fichier de test | Ce qu'il couvre |
+| --- | --- |
+| `test/statique.test.js` | Fichiers statiques (CSS, logo, polices) : type, cache, ETag, aucun accès à d'autres fichiers du serveur |
+| `test/unit.test.js` | Fonctions pures : dates et fuseau horaire, montants, échappement HTML, texte du PDF, contenu du ticket |
+| `test/connexion.test.js` | Connexion, blocage après 5 échecs, sessions, déconnexion, CSRF, refus 403 de Cyclos |
+| `test/securite.test.js` | En-têtes de sécurité, cache, HTML sans style ni script, limite de taille des requêtes |
+| `test/releve.test.js` | Ticket à l'écran et en PDF : pagination, dates, plafond de 2000 lignes, échappement |
+| `test/totaux-calcules.test.js` | Totaux calculés par le code quand Cyclos ne les donne pas, exactitude des centimes |
+| `test/erreurs.test.js` | Messages d'erreur affichés et journal du serveur (sans données sensibles) |
+| `test/canal.test.js` | En-tête `Channel` envoyé à Cyclos (variable `CYCLOS_CHANNEL`) |
+| `test/charte.test.js` | Charte graphique, accessibilité des erreurs, polices et couleurs |
+| `test/demarrage.test.js` | Démarrage réel avec `node server.js`, `PORT` et `CYCLOS_BASE_URL` |
+
+Le dossier `test-support/` contient les outils des tests : `fake-cyclos.js` (faux Cyclos local),
+`harness.js` (démarre serveur et faux Cyclos, petit « navigateur ») et `pdf-text.js` (lecture du texte d'un PDF).
+
+Lancer un seul fichier :
+
+```sh
+node --test test/unit.test.js
+```
+
+Conseils pour lire un test :
+
+1. Lisez d'abord le titre et le commentaire d'intention : « qu'est-ce qui irait mal si ce test échouait ? ».
+2. Repérez les trois temps : préparer (état du faux Cyclos, connexion), agir (une requête), vérifier (les `assert`).
+3. Le dernier argument d'un `assert` est le message affiché en cas d'échec : il dit quel cas pose problème.
+4. Pour comprendre une situation, ouvrez `test-support/fake-cyclos.js` : on y voit exactement ce que « Cyclos » répond.
+
 ## Sécurité en bref
 
 - **Pas de mot de passe conservé** : l'identifiant et le mot de passe servent
