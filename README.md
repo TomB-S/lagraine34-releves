@@ -43,6 +43,7 @@ CYCLOS_BASE_URL=https://cyclos.example.org/api PORT=8080 node server.js
 | Nom | Rôle | Valeur par défaut |
 | --- | --- | --- |
 | `CYCLOS_BASE_URL` | Adresse de l'API Cyclos (avec `/api`) | `https://demo.cyclos.org/api` |
+| `CYCLOS_CHANNEL` | Canal Cyclos, envoyé dans l'en-tête `Channel` sur tous les appels (connexion, historique, totaux, déconnexion). Lettres, chiffres, `-` et `_`, 32 caractères au maximum, sinon le serveur refuse de démarrer. `main` est le canal de l'interface officielle ; le canal prévu pour les outils externes devra être confirmé avec Cylaos. | aucun (en-tête non envoyé) |
 | `PORT` | Port d'écoute | `3000` |
 | `SESSION_IDLE_MINUTES` | Inactivité après laquelle la session se ferme | `20` |
 | `SESSION_MAX_HOURS` | Durée maximale d'une session, activité ou non | `8` |
