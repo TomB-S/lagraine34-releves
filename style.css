@@ -485,7 +485,7 @@ form[action="/deconnexion"] {
   }
 
   .logo img {
-    filter: grayscale(1) contrast(1.4);
+    filter: grayscale(1);
   }
 
   .nom-outil {
@@ -502,6 +502,7 @@ form[action="/deconnexion"] {
 
   .erreur,
   .avertissement {
+    border-color: var(--noir);
     color: var(--noir);
   }
 
