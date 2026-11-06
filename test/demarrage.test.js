@@ -81,3 +81,48 @@ test("node server.js : CYCLOS_BASE_URL est bien utilisée pour la connexion", as
     await cyclos.close();
   }
 });
+
+// ---- .env file: read by "npm start" only, never by the tests or by "node server.js" ----
+
+test("package.json : seul `start` lit .env, `test` ne le lit pas", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const pkg = JSON.parse(await readFile(new URL("package.json", ROOT), "utf8"));
+  assert.equal(pkg.scripts.start, "node --env-file-if-exists=.env server.js");
+  assert.doesNotMatch(pkg.scripts.test, /env-file/);
+  // --env-file-if-exists appeared in Node 22.9.
+  assert.equal(pkg.engines.node, ">=22.9");
+});
+
+test("--env-file-if-exists : le fichier remplit les variables, une variable déjà définie l'emporte, fichier absent toléré", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const dir = await mkdtemp(`${tmpdir()}/lagraine-env-`);
+  const envFile = `${dir}/.env`;
+  await writeFile(envFile, "CYCLOS_CHANNEL=depuis-le-fichier\nPORT=1\n");
+  const flag = `--env-file-if-exists=${envFile}`;
+  const start = async (args, env) => {
+    const { child, exited, output } = run(args, env);
+    for (let i = 0; i < 100 && !output().includes("Canal Cyclos"); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    child.kill();
+    await exited;
+    return output();
+  };
+  try {
+    const port = String(20000 + Math.floor(Math.random() * 20000));
+    // The file supplies the channel; its PORT=1 loses against the PORT given in front (port 1 would fail).
+    let out = await start([flag, "server.js"], { PORT: port, CYCLOS_CHANNEL: undefined });
+    assert.match(out, /Canal Cyclos : depuis-le-fichier/);
+    // A variable set before the command wins over the file, even when empty.
+    out = await start([flag, "server.js"], { PORT: port, CYCLOS_CHANNEL: "devant" });
+    assert.match(out, /Canal Cyclos : devant/);
+    out = await start([flag, "server.js"], { PORT: port, CYCLOS_CHANNEL: "" });
+    assert.match(out, /Canal Cyclos : \(par defaut\)/);
+    // No file: same behaviour as before, no error.
+    out = await start([`--env-file-if-exists=${dir}/absent.env`, "server.js"], { PORT: port, CYCLOS_CHANNEL: "" });
+    assert.match(out, /Canal Cyclos : \(par defaut\)/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
