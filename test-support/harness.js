@@ -1,5 +1,6 @@
 // Démarre le vrai serveur (port aléatoire) face à un faux Cyclos, et fournit
 // un petit client HTTP qui garde le cookie de session.
+import http from "node:http";
 import { test, mock } from "node:test";
 import { startServer } from "../server.js";
 import { startFakeCyclos, USER } from "./fake-cyclos.js";
@@ -113,8 +114,6 @@ export function appTest(name, optionsOrFn, maybeFn) {
 
 // Requête HTTP brute (chemin envoyé tel quel, corps en morceaux possible), pour
 // ce que fetch normalise ou refuse d'envoyer.
-import http from "node:http";
-
 export function rawRequest(base, { method = "GET", path = "/", headers = {}, chunks } = {}) {
   const { hostname, port } = new URL(base);
   return new Promise((resolve, reject) => {

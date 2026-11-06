@@ -1,6 +1,6 @@
 // En-têtes de sécurité, cache, limite de taille des corps, HTML sans style/script.
 import assert from "node:assert/strict";
-import { appTest, rawRequest, EXPECTED_CSP, USER } from "../test-support/harness.js";
+import { appTest, rawRequest, EXPECTED_CSP } from "../test-support/harness.js";
 import { entry } from "../test-support/fake-cyclos.js";
 
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
@@ -45,8 +45,6 @@ async function everyResponse(app) {
   await take("POST /deconnexion sans session 303", app.request("/deconnexion", { method: "POST", form: {} }));
   return out;
 }
-
-const STATIC = /^GET \/(style\.css|logo\.png|fonts\/)/;
 
 appTest("en-têtes de sécurité sur chaque type de réponse, CSP exacte", async (app) => {
   const responses = await everyResponse(app);

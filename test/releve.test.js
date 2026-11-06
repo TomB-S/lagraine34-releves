@@ -1,7 +1,7 @@
 // POST /releve (page) et POST /releve.pdf, avec le faux Cyclos.
 import assert from "node:assert/strict";
 import { DateTime } from "luxon";
-import { appTest, USER } from "../test-support/harness.js";
+import { appTest } from "../test-support/harness.js";
 import { entry } from "../test-support/fake-cyclos.js";
 import { pdfPages } from "../test-support/pdf-text.js";
 
