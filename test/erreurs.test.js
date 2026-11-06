@@ -4,7 +4,7 @@ import { appTest, USER } from "../test-support/harness.js";
 import { entry } from "../test-support/fake-cyclos.js";
 
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
-const NO_ACCOUNT = "Ce compte n'a pas de compte de monnaie. Il ne peut pas servir à consulter un relevé. Connectez-vous avec un compte commerçant.";
+const NO_ACCOUNT = "Cyclos refuse l'accès aux comptes de cet utilisateur. Soit il n'a pas de compte de monnaie, soit l'accès par l'API ne lui est pas autorisé. Contactez l'association.";
 
 const post = (app, path, csrf) => app.request(path, { method: "POST", form: { csrf, ...RANGE } });
 
@@ -18,7 +18,10 @@ for (const path of ["/releve", "/releve.pdf"]) {
     const html = await res.text();
     assert.ok(html.includes(NO_ACCOUNT));
     // Charte : icône, libellé « Erreur : », role="alert", aucun style ni script en ligne.
-    assert.match(html, /<p class="erreur" role="alert"><span class="icone" aria-hidden="true">⚠<\/span> <strong>Erreur :<\/strong> Ce compte/);
+    assert.match(html, /<p class="erreur" role="alert"><span class="icone" aria-hidden="true">⚠<\/span> <strong>Erreur :<\/strong> Cyclos refuse/);
+    assert.match(html, /<title>Accès aux comptes refusé<\/title>/);
+    assert.match(html, /<h1>Accès aux comptes refusé<\/h1>/);
+    assert.ok(!html.includes("Ce compte n'a pas de compte de monnaie"));
     assert.ok(!/style=|<style|<script/i.test(html));
     assert.ok(!html.includes("n'a pas l'autorisation d'utiliser cet outil"));
     assert.match(html, /<a href="\/filtres">Retour<\/a>/);
@@ -37,7 +40,7 @@ appTest("403 sur GET /self/accounts/{type}/history : message générique", async
   app.cyclos.force("GET /self/accounts/membre/history", 403);
   const html = await (await post(app, "/releve", csrf)).text();
   assert.match(html, /n'a pas l'autorisation d'utiliser cet outil/);
-  assert.ok(!html.includes("compte de monnaie"));
+  assert.ok(!html.includes("Accès aux comptes refusé"));
   assert.equal((await app.request("/filtres")).status, 200, "session conservée");
 });
 
@@ -92,7 +95,7 @@ appTest("502 : échec réseau -> 'Impossible de joindre Cyclos', journalisé", a
 
 appTest("exception interne -> 500 'Erreur interne', pas 'Impossible de joindre'; message et pile journalisés", async (app) => {
   const csrf = await app.loggedIn();
-  app.cyclos.state.accountsBody = []; // aucune entrée : le code lit accounts[0].type -> TypeError
+  app.cyclos.state.accountsBody = [{}]; // compte sans type : le code lit type.internalName -> TypeError
   const res = await post(app, "/releve", csrf);
   assert.equal(res.status, 500);
   const text = await res.text();
@@ -106,3 +109,23 @@ appTest("exception interne -> 500 'Erreur interne', pas 'Impossible de joindre';
   assert.ok(!log.includes(USER.password));
   assert.equal((await app.request("/filtres")).status, 200, "session conservée");
 });
+
+for (const path of ["/releve", "/releve.pdf"]) {
+  appTest(`GET /self/accounts : 200 avec tableau vide (${path}) -> même message, journalisé, session conservée`, async (app) => {
+    const csrf = await app.loggedIn();
+    app.cyclos.state.accountsBody = [];
+    const res = await post(app, path, csrf);
+    assert.equal(res.status, 403);
+    const html = await res.text();
+    assert.ok(html.includes(NO_ACCOUNT));
+    assert.match(html, /<h1>Accès aux comptes refusé<\/h1>/);
+    assert.match(html, /<strong>Erreur :<\/strong>/);
+    assert.match(html, /action="\/deconnexion"/);
+    assert.equal(res.headers.get("set-cookie"), null);
+    const lines = app.logs.filter((l) => l.startsWith("Cyclos GET /self/accounts"));
+    assert.deepEqual(lines, ["Cyclos GET /self/accounts -> 200 liste vide (aucun compte)"]);
+    assert.ok(!app.logs.some((l) => l.startsWith("Erreur interne")));
+    app.cyclos.state.accountsBody = undefined;
+    assert.equal((await post(app, path, csrf)).status, 200, "session utilisable ensuite");
+  });
+}

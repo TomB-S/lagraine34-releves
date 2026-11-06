@@ -377,6 +377,10 @@ async function fetchStatement(sessionToken, { from, to, until }) {
 
   const merchantName = await fetchDisplayName(sessionToken);
   const accounts = await (await api("/self/accounts", sessionToken)).json();
+  if (Array.isArray(accounts) && accounts.length === 0) {
+    console.error("Cyclos GET /self/accounts -> 200 liste vide (aucun compte)");
+    throw new AccessDeniedError("empty account list", { noMoneyAccount: true });
+  }
   const accountType = accounts[0].type.internalName;
   const currency = accounts[0].currency;
 
@@ -512,13 +516,14 @@ function renderAccessDenied(csrfToken) {
   );
 }
 
-// Account without a money account (Cyclos refuses GET /self/accounts). The
+// Cyclos refuses (403) or gives nothing (empty list) on GET /self/accounts:
+// either no money account, or no banking right for the API session. The
 // session stays open: the user can go back or log out and use another account.
 function renderNoMoneyAccount(csrfToken) {
   return htmlPage(
-    "Compte sans compte de monnaie",
-    `<h1>Compte sans compte de monnaie</h1>
-  ${errorMessage("Ce compte n'a pas de compte de monnaie. Il ne peut pas servir à consulter un relevé. Connectez-vous avec un compte commerçant.")}
+    "Accès aux comptes refusé",
+    `<h1>Accès aux comptes refusé</h1>
+  ${errorMessage("Cyclos refuse l'accès aux comptes de cet utilisateur. Soit il n'a pas de compte de monnaie, soit l'accès par l'API ne lui est pas autorisé. Contactez l'association.")}
   <p><a href="/filtres">Retour</a></p>
   ${logoutForm(csrfToken)}`,
   );
