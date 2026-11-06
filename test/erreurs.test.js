@@ -1,14 +1,25 @@
+// === CE QUE VÉRIFIE CE FICHIER ===
+// Ce que voit le commerçant quand quelque chose ne va pas (compte non autorisé, Cyclos en panne, bug interne), et ce que le serveur écrit dans
+// son JOURNAL pour qu'on puisse diagnostiquer. Deux exigences : des messages clairs, sans détail technique, et un journal utile mais
+// qui ne contient jamais de mot de passe, de jeton ni de montant. Utilise le harnais et le faux Cyclos (`force` simule les pannes).
+// Notions de base (assert, async, statuts HTTP) : voir test/statique.test.js.
 // Clear error messages and server log (diagnosis without sensitive data).
 import assert from "node:assert/strict";
 import { appTest, USER } from "../test-support/harness.js";
 import { entry } from "../test-support/fake-cyclos.js";
 
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
+// Le message exact affiché quand Cyclos refuse l'accès aux comptes (écrit en dur pour détecter tout changement involontaire).
 const NO_ACCOUNT = "Cyclos refuse l'accès aux comptes de cet utilisateur. Soit il n'a pas de compte de monnaie, soit l'accès par l'API ne lui est pas autorisé. Contactez l'association.";
 
+// Raccourci : envoie la demande de relevé (POST) sur la route voulue avec le jeton CSRF (voir test/connexion.test.js).
 const post = (app, path, csrf) => app.request(path, { method: "POST", form: { csrf, ...RANGE } });
 
+// Chaque test de cette boucle est joué deux fois : pour la page et pour le PDF.
 for (const path of ["/releve", "/releve.pdf"]) {
+  // Intention : si Cyclos répond 403 (interdit) à la liste des comptes (compte sans compte de monnaie, ou accès API non autorisé), on affiche un
+  // message dédié « Accès aux comptes refusé », avec la charte (icône + « Erreur : », sans style en ligne), la session reste ouverte et
+  // utilisable ensuite. Avant, l'utilisateur voyait une erreur 500 incompréhensible.
   appTest(`403 sur GET /self/accounts (${path}) : message dédié, charte, session conservée`, async (app) => {
     const csrf = await app.loggedIn();
     app.cyclos.force("GET /self/accounts", 403);
@@ -34,6 +45,8 @@ for (const path of ["/releve", "/releve.pdf"]) {
   });
 }
 
+// Intention : un 403 sur l'historique (et non sur la liste des comptes) garde le message générique « n'a pas l'autorisation » :
+// les deux cas ne doivent pas être confondus.
 appTest("403 sur GET /self/accounts/{type}/history : message générique", async (app) => {
   const csrf = await app.loggedIn();
   app.cyclos.state.entries = [entry(1)];
@@ -44,6 +57,9 @@ appTest("403 sur GET /self/accounts/{type}/history : message générique", async
   assert.equal((await app.request("/filtres")).status, 200, "session conservée");
 });
 
+// Intention : pour chaque réponse d'erreur de Cyclos, UNE ligne dans le journal (méthode, chemin, statut, code d'erreur de Cyclos), sans les dates ni les
+// paramètres du chemin. Ça permet de comprendre une panne sans rien exposer. Aucune ligne pour les réponses réussies (2xx).
+// `app.logs` est le journal capté par le harnais.
 appTest("journal : une ligne par réponse non 2xx (méthode, chemin avec type de compte, statut, code Cyclos)", async (app) => {
   const csrf = await app.loggedIn();
   app.cyclos.force("GET /self/accounts", 403);
@@ -65,6 +81,8 @@ appTest("journal : une ligne par réponse non 2xx (méthode, chemin avec type de
   assert.equal(app.logs.filter((l) => l.startsWith("Cyclos ")).length, before);
 });
 
+// Intention (sécurité) : le journal ne contient JAMAIS d'identifiant, de mot de passe, de jeton, de montant, de nom ni de jeton CSRF. On provoque
+// des erreurs avec des valeurs reconnaissables, puis on cherche chacune dans tout le journal.
 appTest("journal : connexion refusée et panne 500 journalisées sans identifiants ni jeton", async (app) => {
   await app.login({ password: "mot-de-passe-faux-123" });
   assert.ok(app.logs.includes("Cyclos POST /auth/session -> 401 code=login"), app.logs.join("\n"));
@@ -84,6 +102,8 @@ appTest("journal : connexion refusée et panne 500 journalisées sans identifian
   }
 });
 
+// Intention : si Cyclos est injoignable (connexion coupée), le commerçant voit « Impossible de joindre Cyclos » (502) et la cause réseau est
+// notée dans le journal. 502 = « passerelle défaillante » : le problème vient de Cyclos ou du réseau, pas de notre outil.
 appTest("502 : échec réseau -> 'Impossible de joindre Cyclos', journalisé", async (app) => {
   const csrf = await app.loggedIn();
   app.cyclos.force("GET /self/accounts", "drop");
@@ -93,6 +113,8 @@ appTest("502 : échec réseau -> 'Impossible de joindre Cyclos', journalisé", a
   assert.ok(app.logs.some((l) => l.startsWith("Cyclos injoignable ou en erreur : network error")), app.logs.join("\n"));
 });
 
+// Intention : un BUG de notre propre code (ici on le provoque avec une réponse mal formée) donne 500 « Erreur interne », bien distinct du 502,
+// sans détail technique pour le navigateur, mais avec le message et la pile d'appels dans le journal pour le développeur.
 appTest("exception interne -> 500 'Erreur interne', pas 'Impossible de joindre'; message et pile journalisés", async (app) => {
   const csrf = await app.loggedIn();
   app.cyclos.state.accountsBody = [{}]; // account without a type: the code reads type.internalName -> TypeError
@@ -110,7 +132,10 @@ appTest("exception interne -> 500 'Erreur interne', pas 'Impossible de joindre';
   assert.equal((await app.request("/filtres")).status, 200, "session conservée");
 });
 
+// Même principe : tableau vide pour la page et pour le PDF.
 for (const path of ["/releve", "/releve.pdf"]) {
+  // Intention : si Cyclos répond « OK » mais avec une liste de comptes VIDE, on se comporte comme pour un refus (même message), on le note dans le journal,
+  // et on ne tombe pas dans une erreur 500. La session reste utilisable.
   appTest(`GET /self/accounts : 200 avec tableau vide (${path}) -> même message, journalisé, session conservée`, async (app) => {
     const csrf = await app.loggedIn();
     app.cyclos.state.accountsBody = [];
