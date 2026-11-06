@@ -64,6 +64,11 @@ class AccessDeniedError extends Error {
   }
 }
 
+// Cyclos could not be reached (network error) or answered something this
+// server cannot use (5xx...). Shown as 502. Any other exception is a bug in
+// this server and is shown as 500.
+class CyclosUnavailableError extends Error {}
+
 // A POST body is larger than MAX_BODY_BYTES.
 class BodyTooLargeError extends Error {}
 
@@ -89,6 +94,17 @@ function recordLoginFailure(ip, now = Date.now()) {
   }
 }
 
+// fetch towards Cyclos: a network failure becomes a CyclosUnavailableError
+// (message and error code only, the URL and headers are not repeated).
+async function cyclosFetch(url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    const code = error?.cause?.code ? ` (${error.cause.code})` : "";
+    throw new CyclosUnavailableError(`network error${code}`, { cause: error });
+  }
+}
+
 // One terminal line for a non-2xx Cyclos answer, so that a refusal can be
 // diagnosed: method, path (query string dropped: it only holds dates), HTTP
 // status and the `code` field of Cyclos' error when it has a plain shape.
@@ -108,7 +124,7 @@ async function logCyclosFailure(method, path, response) {
 
 // Authenticated Cyclos call: the Cyclos session token replaces the password.
 async function api(path, sessionToken, options = {}) {
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await cyclosFetch(`${BASE}${path}`, {
     ...options,
     headers: { "Session-Token": sessionToken },
   });
@@ -125,7 +141,7 @@ async function api(path, sessionToken, options = {}) {
     });
   }
   if (!response.ok) {
-    throw new Error(`${response.status} on ${path}`);
+    throw new CyclosUnavailableError(`${response.status} on ${path}`);
   }
 
   return response;
@@ -136,7 +152,7 @@ async function api(path, sessionToken, options = {}) {
 async function createCyclosSession(login, password) {
   // Buffer rather than btoa: btoa throws on accents and other non-Latin1 characters.
   const basic = Buffer.from(`${login}:${password}`, "utf-8").toString("base64");
-  const response = await fetch(`${BASE}/auth/session`, {
+  const response = await cyclosFetch(`${BASE}/auth/session`, {
     method: "POST",
     headers: { Authorization: `Basic ${basic}` },
   });
@@ -149,7 +165,7 @@ async function createCyclosSession(login, password) {
     throw new AccessDeniedError("403 on /auth/session");
   }
   if (!response.ok) {
-    throw new Error(`${response.status} on /auth/session`);
+    throw new CyclosUnavailableError(`${response.status} on /auth/session`);
   }
 
   const { sessionToken } = await response.json();
@@ -1099,8 +1115,19 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
-    console.error(error);
-    send(res, 502, "text/plain", "Impossible de joindre Cyclos");
+    if (error instanceof CyclosUnavailableError) {
+      console.error(`Cyclos injoignable ou en erreur : ${error.message}`);
+      send(res, 502, "text/plain", "Impossible de joindre Cyclos");
+      return;
+    }
+    // An exception of this server's own code (not a Cyclos or network problem).
+    console.error("Erreur interne du serveur :", error?.stack ?? error);
+    send(
+      res,
+      500,
+      "text/plain",
+      "Erreur interne du serveur. Consultez le journal du serveur pour le détail.",
+    );
   }
 });
 
