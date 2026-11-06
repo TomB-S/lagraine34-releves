@@ -275,6 +275,52 @@ async function fetchDisplayName(sessionToken) {
   }
 }
 
+// Exact decimal arithmetic for amounts: "10.25" with 2 digits -> 1025n (smallest
+// currency unit). Returns null for anything that is not a plain decimal or that
+// is finer than `digits` (nothing is rounded: the caller must not invent a total).
+function toUnits(value, digits) {
+  const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(String(value ?? "").trim());
+  if (!match) return null;
+  const [, minus, integer, decimals = ""] = match;
+  if (/[^0]/.test(decimals.slice(digits))) return null;
+  const units = BigInt(integer + decimals.slice(0, digits).padEnd(digits, "0"));
+  return minus ? -units : units;
+}
+
+function fromUnits(units, digits) {
+  const negative = units < 0n;
+  const text = (negative ? -units : units).toString().padStart(digits + 1, "0");
+  const cut = text.length - digits;
+  const decimals = digits > 0 ? `.${text.slice(cut)}` : "";
+  return `${negative ? "-" : ""}${text.slice(0, cut)}${decimals}`;
+}
+
+// Totals of a complete list of entries, in the shape of Cyclos' status
+// indicators: incoming = positive amounts, outgoing = absolute value of the
+// negative ones. Returns null if an amount cannot be read exactly.
+function totalsFromEntries(entries, digits) {
+  let inSum = 0n;
+  let outSum = 0n;
+  let inCount = 0;
+  let outCount = 0;
+  for (const entry of entries) {
+    const units = toUnits(entry?.amount, digits);
+    if (units === null) return null;
+    if (units > 0n) {
+      inSum += units;
+      inCount += 1;
+    } else if (units < 0n) {
+      outSum -= units;
+      outCount += 1;
+    }
+  }
+  return {
+    incoming: { count: inCount, sum: fromUnits(inSum, digits) },
+    outgoing: { count: outCount, sum: fromUnits(outSum, digits) },
+    netInflow: fromUnits(inSum - outSum, digits),
+  };
+}
+
 // Statement for the merchant's chosen range (DateTimes in ZONE, `until` is
 // the inclusive end sent to Cyclos).
 async function fetchStatement(sessionToken, { from, to, until }) {
@@ -288,11 +334,11 @@ async function fetchStatement(sessionToken, { from, to, until }) {
   const accountType = accounts[0].type.internalName;
   const currency = accounts[0].currency;
 
-  const totals = await (
+  let totals = await (
     await api(`/self/accounts/${accountType}?${period}`, sessionToken)
   ).json();
-  // History pages, most recent first. Reading stops at MAX_ROWS lines; the
-  // totals above come from a dedicated endpoint, so they stay exact anyway.
+  // History pages, most recent first. Reading stops at MAX_ROWS lines; when
+  // Cyclos provides the totals (above) they stay exact anyway.
   const entries = [];
   let truncated = false;
   for (let page = 0; ; page += 1) {
@@ -308,6 +354,15 @@ async function fetchStatement(sessionToken, { from, to, until }) {
       break;
     }
     if (!hasNext) break;
+  }
+
+  // Some Cyclos instances answer without the incoming/outgoing indicators. The
+  // totals are then computed from the entries, but only when the list is
+  // complete: a truncated list would give wrong totals.
+  const status = totals?.status;
+  if (!(status?.incoming && status?.outgoing) && !truncated) {
+    const computed = totalsFromEntries(entries, currency?.decimalDigits ?? 2);
+    if (computed) totals = { ...totals, status: { ...status, ...computed } };
   }
 
   return { from, to, totals, entries, truncated, merchantName, currency };
