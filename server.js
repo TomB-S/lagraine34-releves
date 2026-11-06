@@ -412,69 +412,117 @@ function counterparty(entry) {
   return related?.user?.display ?? related?.type?.name ?? "";
 }
 
-function renderStatement(
-  { from, to, totals, entries, truncated, merchantName, currency },
-  csrfToken,
-) {
+// The content of the ticket as plain strings (not escaped), shared by the HTML
+// page and the PDF so that both always show the same thing.
+function ticketModel({
+  from,
+  to,
+  totals,
+  entries,
+  truncated,
+  merchantName,
+  currency,
+}) {
   const digits = currency?.decimalDigits ?? 2;
   const { incoming, outgoing, netInflow } = totals.status;
   const net =
     netInflow ?? (Number(incoming.sum) - Number(outgoing.sum)).toFixed(digits);
 
   // Cyclos answers most recent first; the ticket reads oldest first.
-  const ordered = [...entries].reverse().sort((a, b) => a.date.localeCompare(b.date));
-  const rows = ordered
-    .map((entry) => {
+  const ordered = [...entries]
+    .reverse()
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    title: "Ticket de fin de service",
+    merchantName,
+    period: `Du ${from.toFormat("dd/MM/yyyy HH:mm")} au ${to.toFormat("dd/MM/yyyy HH:mm")}`,
+    generated: `Ticket généré le ${DateTime.now().setZone(ZONE).toFormat("dd/MM/yyyy 'à' HH:mm")}`,
+    unit: `Montants en ${currency?.name ?? ""}`,
+    summary: [
+      {
+        label: plural(incoming.count, "paiement reçu", "paiements reçus"),
+        value: formatAmount(incoming.sum, digits),
+      },
+      {
+        label: plural(outgoing.count, "paiement sorti", "paiements sortis"),
+        value: formatAmount(outgoing.sum, digits),
+      },
+      {
+        label: "Solde net",
+        value: formatAmount(net, digits, { signed: true }),
+        net: true,
+      },
+    ],
+    rows: ordered.map((entry) => ({
       // Each stored instant is rendered back into Paris wall-clock time.
-      const when = DateTime.fromISO(entry.date).setZone(ZONE).toFormat("dd/MM HH:mm");
-      return `<li class="ligne">
-        <span class="date">${escapeHtml(when)}</span>
-        <span class="numero">${escapeHtml(entry.transactionNumber ?? "")}</span>
-        <span class="contrepartie">${escapeHtml(counterparty(entry))}</span>
-        <span class="description">${escapeHtml(entry.description ?? "")}</span>
-        <span class="montant">${escapeHtml(formatAmount(entry.amount, digits, { signed: true }))}</span>
-      </li>`;
-    })
+      when: DateTime.fromISO(entry.date).setZone(ZONE).toFormat("dd/MM HH:mm"),
+      number: entry.transactionNumber ?? "",
+      counterparty: counterparty(entry),
+      description: entry.description ?? "",
+      amount: formatAmount(entry.amount, digits, { signed: true }),
+    })),
+    warning: truncated
+      ? `Attention : la liste est limitée aux ${MAX_ROWS} transactions les plus récentes de la plage, les plus anciennes ne sont pas affichées. Les totaux du résumé restent exacts : ils sont calculés par Cyclos sur toute la plage, pas à partir de cette liste.`
+      : "",
+    emptyText: "Aucune transaction sur cette plage",
+    // Range in the filter form's format, for the PDF download form.
+    start: from.toFormat(INPUT_FORMAT),
+    end: to.toFormat(INPUT_FORMAT),
+  };
+}
+
+function renderStatement(statement, csrfToken) {
+  const m = ticketModel(statement);
+
+  const rows = m.rows
+    .map(
+      (row) => `<li class="ligne">
+        <span class="date">${escapeHtml(row.when)}</span>
+        <span class="numero">${escapeHtml(row.number)}</span>
+        <span class="contrepartie">${escapeHtml(row.counterparty)}</span>
+        <span class="description">${escapeHtml(row.description)}</span>
+        <span class="montant">${escapeHtml(row.amount)}</span>
+      </li>`,
+    )
     .join("\n      ");
 
-  const warning = truncated
-    ? `<p class="avertissement" role="alert">Attention : la liste est limitée aux ${MAX_ROWS} transactions les plus récentes de la plage, les plus anciennes ne sont pas affichées. Les totaux du résumé restent exacts : ils sont calculés par Cyclos sur toute la plage, pas à partir de cette liste.</p>`
-    : "";
+  const summary = m.summary
+    .map(
+      (line) => `<div${line.net ? ' class="net"' : ""}><dt>${escapeHtml(line.label)}</dt>
+      <dd>${escapeHtml(line.value)}</dd></div>`,
+    )
+    .join("\n    ");
 
   return htmlPage(
-    "Ticket de fin de service",
+    m.title,
     `<main class="ticket">
-  <h1>Ticket de fin de service</h1>
-  ${merchantName ? `<p class="commercant">${escapeHtml(merchantName)}</p>` : ""}
-  <p class="periode">Du ${from.toFormat("dd/MM/yyyy HH:mm")} au ${to.toFormat("dd/MM/yyyy HH:mm")}</p>
-  <p class="generation">Ticket généré le ${DateTime.now().setZone(ZONE).toFormat("dd/MM/yyyy 'à' HH:mm")}</p>
+  <h1>${escapeHtml(m.title)}</h1>
+  ${m.merchantName ? `<p class="commercant">${escapeHtml(m.merchantName)}</p>` : ""}
+  <p class="periode">${escapeHtml(m.period)}</p>
+  <p class="generation">${escapeHtml(m.generated)}</p>
 
   <h2>Résumé</h2>
-  <p class="unite">Montants en ${escapeHtml(currency?.name ?? "")}</p>
+  <p class="unite">${escapeHtml(m.unit)}</p>
   <dl class="resume">
-    <div><dt>${escapeHtml(plural(incoming.count, "paiement reçu", "paiements reçus"))}</dt>
-      <dd>${escapeHtml(formatAmount(incoming.sum, digits))}</dd></div>
-    <div><dt>${escapeHtml(plural(outgoing.count, "paiement sorti", "paiements sortis"))}</dt>
-      <dd>${escapeHtml(formatAmount(outgoing.sum, digits))}</dd></div>
-    <div class="net"><dt>Solde net</dt>
-      <dd>${escapeHtml(formatAmount(net, digits, { signed: true }))}</dd></div>
+    ${summary}
   </dl>
 
   <h2>Détail</h2>
-  ${warning}
+  ${m.warning ? `<p class="avertissement" role="alert">${escapeHtml(m.warning)}</p>` : ""}
   ${
     rows
       ? `<ol class="detail">
       ${rows}
   </ol>`
-      : `<p class="vide">Aucune transaction sur cette plage</p>`
+      : `<p class="vide">${escapeHtml(m.emptyText)}</p>`
   }
 
   <div class="actions">
     <form method="post" action="/releve.pdf" class="telechargement">
       <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
-      <input type="hidden" name="start" value="${from.toFormat(INPUT_FORMAT)}">
-      <input type="hidden" name="end" value="${to.toFormat(INPUT_FORMAT)}">
+      <input type="hidden" name="start" value="${escapeHtml(m.start)}">
+      <input type="hidden" name="end" value="${escapeHtml(m.end)}">
       <button type="submit">Télécharger le PDF</button>
     </form>
     <p><a href="/filtres">Changer la plage horaire</a></p>
@@ -813,7 +861,7 @@ const server = http.createServer(async (req, res) => {
         // ends in the normal error handling below, not in a half-sent file.
         let pdf;
         try {
-          pdf = await renderTicketPdf({ title: "Ticket de fin de service" });
+          pdf = await renderTicketPdf(ticketModel(statement));
         } catch (error) {
           console.error(error);
           send(res, 500, "text/plain", "Impossible de générer le PDF");
