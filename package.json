@@ -4,11 +4,11 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --env-file-if-exists=.env server.js",
     "test": "node --test"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.9"
   },
   "keywords": [],
   "type": "module",
