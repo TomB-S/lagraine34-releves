@@ -218,6 +218,21 @@ function parseRange(startText, endText, now = DateTime.now().setZone(ZONE)) {
   return { from, to, until, clamped };
 }
 
+// Display name of the logged-in user, or null when unavailable. Only the
+// "display" field is requested and kept: the rest of the profile is never read.
+// A 401 still propagates (the session is over); any other failure just omits the name.
+async function fetchDisplayName(sessionToken) {
+  try {
+    const { display } = await (
+      await api("/users/self?fields=display", sessionToken)
+    ).json();
+    return typeof display === "string" && display ? display : null;
+  } catch (error) {
+    if (error instanceof LoginError) throw error;
+    return null;
+  }
+}
+
 // Statement for the merchant's chosen range (DateTimes in ZONE, `until` is
 // the inclusive end sent to Cyclos).
 async function fetchStatement(sessionToken, { from, to, until }) {
@@ -226,8 +241,10 @@ async function fetchStatement(sessionToken, { from, to, until }) {
   period.append("datePeriod", from.toUTC().toISO());
   period.append("datePeriod", until.toUTC().toISO());
 
+  const merchantName = await fetchDisplayName(sessionToken);
   const accounts = await (await api("/self/accounts", sessionToken)).json();
   const accountType = accounts[0].type.internalName;
+  const currency = accounts[0].currency;
 
   const totals = await (
     await api(`/self/accounts/${accountType}?${period}`, sessionToken)
@@ -251,7 +268,7 @@ async function fetchStatement(sessionToken, { from, to, until }) {
     if (!hasNext) break;
   }
 
-  return { from, to, totals, entries, truncated };
+  return { from, to, totals, entries, truncated, merchantName, currency };
 }
 
 // Values come from a remote API (or the user): escape them before putting them in HTML.
@@ -370,29 +387,93 @@ function rangeValues({ start, end }) {
   return { start: start.toFormat(INPUT_FORMAT), end: end.toFormat(INPUT_FORMAT) };
 }
 
-function renderStatement({ from, to, totals, entries, truncated }, csrfToken) {
-  const rows = entries
+// Formats a Cyclos amount string ("1234.5") the French way ("1 234,50", with a
+// narrow no-break space between thousands). String based: no float rounding.
+// `signed` adds "+" to positive amounts; negative ones always keep their "-".
+function formatAmount(value, digits = 2, { signed = false } = {}) {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(String(value));
+  if (!match) return String(value);
+  const [, minus, integer, decimals = ""] = match;
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202f");
+  const number = digits > 0 ? `${grouped},${decimals.padEnd(digits, "0")}` : grouped;
+  const isZero = /^[0,\u202f]*$/.test(number);
+  if (minus && !isZero) return `-${number}`;
+  return signed && !isZero ? `+${number}` : number;
+}
+
+function plural(count, one, many) {
+  return `${count} ${count > 1 ? many : one}`;
+}
+
+// Who is on the other side of a transaction (a member, or a system account).
+function counterparty(entry) {
+  const related = entry.relatedAccount;
+  return related?.user?.display ?? related?.type?.name ?? "";
+}
+
+function renderStatement(
+  { from, to, totals, entries, truncated, merchantName, currency },
+  csrfToken,
+) {
+  const digits = currency?.decimalDigits ?? 2;
+  const { incoming, outgoing, netInflow } = totals.status;
+  const net =
+    netInflow ?? (Number(incoming.sum) - Number(outgoing.sum)).toFixed(digits);
+
+  // Cyclos answers most recent first; the ticket reads oldest first.
+  const ordered = [...entries].reverse().sort((a, b) => a.date.localeCompare(b.date));
+  const rows = ordered
     .map((entry) => {
       // Each stored instant is rendered back into Paris wall-clock time.
-      const time = DateTime.fromISO(entry.date).setZone(ZONE).toFormat("HH:mm");
-      return `<li>${time} — ${escapeHtml(entry.amount)} — ${escapeHtml(entry.description ?? "")}</li>`;
+      const when = DateTime.fromISO(entry.date).setZone(ZONE).toFormat("dd/MM HH:mm");
+      return `<li class="ligne">
+        <span class="date">${escapeHtml(when)}</span>
+        <span class="numero">${escapeHtml(entry.transactionNumber ?? "")}</span>
+        <span class="contrepartie">${escapeHtml(counterparty(entry))}</span>
+        <span class="description">${escapeHtml(entry.description ?? "")}</span>
+        <span class="montant">${escapeHtml(formatAmount(entry.amount, digits, { signed: true }))}</span>
+      </li>`;
     })
     .join("\n      ");
 
-  const { incoming, outgoing } = totals.status;
+  const warning = truncated
+    ? `<p class="avertissement" role="alert">Attention : la liste est limitée aux ${MAX_ROWS} transactions les plus récentes de la plage, les plus anciennes ne sont pas affichées. Les totaux du résumé restent exacts : ils sont calculés par Cyclos sur toute la plage, pas à partir de cette liste.</p>`
+    : "";
 
   return htmlPage(
-    "Relevé",
-    `<h1>Relevé du ${from.toFormat("dd/MM/yyyy")}</h1>
-  <p>De ${from.toFormat("HH:mm")} à ${to.toFormat("HH:mm")}</p>
-  ${truncated ? `<p class="avertissement" role="alert">Attention : la liste est limitée à ${MAX_ROWS} lignes (les plus récentes). Les totaux ci-dessous restent exacts : ils sont calculés par Cyclos sur toute la plage.</p>` : ""}
-  <ul>
-      ${rows || "<li>Aucune transaction sur cette plage</li>"}
-  </ul>
-  <p>Encaissé : ${escapeHtml(incoming.sum)} (${incoming.count} transactions)</p>
-  <p>Sorti : ${escapeHtml(outgoing.sum)} (${outgoing.count} transactions)</p>
-  <p><a href="/filtres">Changer la plage horaire</a></p>
-  ${logoutForm(csrfToken)}`,
+    "Ticket de fin de service",
+    `<main class="ticket">
+  <h1>Ticket de fin de service</h1>
+  ${merchantName ? `<p class="commercant">${escapeHtml(merchantName)}</p>` : ""}
+  <p class="periode">Du ${from.toFormat("dd/MM/yyyy HH:mm")} au ${to.toFormat("dd/MM/yyyy HH:mm")}</p>
+  <p class="generation">Ticket généré le ${DateTime.now().setZone(ZONE).toFormat("dd/MM/yyyy 'à' HH:mm")}</p>
+
+  <h2>Résumé</h2>
+  <p class="unite">Montants en ${escapeHtml(currency?.name ?? "")}</p>
+  <dl class="resume">
+    <div><dt>${escapeHtml(plural(incoming.count, "paiement reçu", "paiements reçus"))}</dt>
+      <dd>${escapeHtml(formatAmount(incoming.sum, digits))}</dd></div>
+    <div><dt>${escapeHtml(plural(outgoing.count, "paiement sorti", "paiements sortis"))}</dt>
+      <dd>${escapeHtml(formatAmount(outgoing.sum, digits))}</dd></div>
+    <div class="net"><dt>Solde net</dt>
+      <dd>${escapeHtml(formatAmount(net, digits, { signed: true }))}</dd></div>
+  </dl>
+
+  <h2>Détail</h2>
+  ${warning}
+  ${
+    rows
+      ? `<ol class="detail">
+      ${rows}
+  </ol>`
+      : `<p class="vide">Aucune transaction sur cette plage</p>`
+  }
+
+  <div class="actions">
+    <p><a href="/filtres">Changer la plage horaire</a></p>
+    ${logoutForm(csrfToken)}
+  </div>
+</main>`,
   );
 }
 
