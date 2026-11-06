@@ -470,11 +470,67 @@ function renderStatement(
   }
 
   <div class="actions">
+    <form method="post" action="/releve.pdf" class="telechargement">
+      <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
+      <input type="hidden" name="start" value="${from.toFormat(INPUT_FORMAT)}">
+      <input type="hidden" name="end" value="${to.toFormat(INPUT_FORMAT)}">
+      <button type="submit">Télécharger le PDF</button>
+    </form>
     <p><a href="/filtres">Changer la plage horaire</a></p>
     ${logoutForm(csrfToken)}
   </div>
 </main>`,
   );
+}
+
+// Shared by POST /releve and POST /releve.pdf: CSRF check, validation of the
+// two submitted dates, then a fresh read from Cyclos. Nothing but the two
+// dates is taken from the browser. When it cannot produce a statement it has
+// already sent the error response (403, 400, redirect on 401...) and returns
+// null; nothing is sent on success, so the caller picks the response format.
+async function loadStatement(req, res, { id, session }) {
+  const { csrfToken } = session;
+
+  const form = new URLSearchParams(await readBody(req));
+  if (!isValidCsrf(session, form.get("csrf"))) {
+    send(
+      res,
+      403,
+      "text/html",
+      renderForbidden(
+        "Jeton de sécurité absent ou invalide. Retournez aux filtres et recommencez.",
+        csrfToken,
+      ),
+    );
+    return null;
+  }
+
+  const values = {
+    start: form.get("start") ?? "",
+    end: form.get("end") ?? "",
+  };
+  const range = parseRange(values.start, values.end);
+  if (range.error) {
+    send(res, 400, "text/html", renderFilters(csrfToken, values, range.error));
+    return null;
+  }
+
+  try {
+    return await fetchStatement(session.sessionToken, range);
+  } catch (error) {
+    if (error instanceof LoginError) {
+      // Cyclos no longer accepts the token (401 loggedOut): drop the local session.
+      sessions.delete(id);
+      redirect(res, "/", { "Set-Cookie": clearCookie });
+      return null;
+    }
+    if (error instanceof AccessDeniedError) {
+      // The account is not allowed to do this, but the session itself is fine.
+      send(res, 403, "text/html", renderAccessDenied(csrfToken));
+      return null;
+    }
+    throw error;
+  }
 }
 
 function send(res, status, contentType, body, headers = {}) {
@@ -721,57 +777,16 @@ const server = http.createServer(async (req, res) => {
           redirect(res, "/");
           return;
         }
-        const { csrfToken } = session.session;
-
-        const form = new URLSearchParams(await readBody(req));
-        if (!isValidCsrf(session.session, form.get("csrf"))) {
-          send(
-            res,
-            403,
-            "text/html",
-            renderForbidden(
-              "Jeton de sécurité absent ou invalide. Retournez aux filtres et recommencez.",
-              csrfToken,
-            ),
-          );
-          return;
-        }
-
-        const values = {
-          start: form.get("start") ?? "",
-          end: form.get("end") ?? "",
-        };
-        const range = parseRange(values.start, values.end);
-        if (range.error) {
-          send(
-            res,
-            400,
-            "text/html",
-            renderFilters(csrfToken, values, range.error),
-          );
-          return;
-        }
-
-        try {
-          const statement = await fetchStatement(
-            session.session.sessionToken,
-            range,
-          );
-          send(res, 200, "text/html", renderStatement(statement, csrfToken));
-        } catch (error) {
-          if (error instanceof LoginError) {
-            // Cyclos no longer accepts the token (401 loggedOut): drop the local session.
-            sessions.delete(session.id);
-            redirect(res, "/", { "Set-Cookie": clearCookie });
-            return;
-          }
-          if (error instanceof AccessDeniedError) {
-            // The account is not allowed to do this, but the session itself is fine.
-            send(res, 403, "text/html", renderAccessDenied(csrfToken));
-            return;
-          }
-          throw error;
-        }
+        // Answers itself (403, 400, 401...) and returns null when it cannot
+        // produce a statement.
+        const statement = await loadStatement(req, res, session);
+        if (!statement) return;
+        send(
+          res,
+          200,
+          "text/html",
+          renderStatement(statement, session.session.csrfToken),
+        );
         return;
       }
 

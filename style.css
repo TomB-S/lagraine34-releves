@@ -111,6 +111,11 @@ form[action="/deconnexion"] {
   margin-top: 1rem;
 }
 
+/* Bouton principal du ticket, au-dessus du lien « Changer la plage horaire ». */
+.telechargement {
+  margin: 0 0 0.5rem;
+}
+
 /* Raccourcis de la page des filtres */
 .raccourcis {
   display: flex;
