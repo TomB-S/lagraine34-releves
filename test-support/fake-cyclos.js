@@ -24,6 +24,9 @@ export async function startFakeCyclos() {
     entries: [], // du plus récent au plus ancien, comme Cyclos
     pageSize: null, // si défini, impose la taille de page (sinon celle demandée)
     totals: null, // si défini, remplace les totaux calculés
+    // false : reproduit la vraie instance, qui répond sans incoming, outgoing
+    // ni netInflow (seulement les soldes et les limites de crédit).
+    indicators: true,
     displayName: USER.display,
     // Réponses forcées : "METHOD /chemin" -> statut (ex. "GET /self/accounts": 403).
     forced: new Map(),
@@ -79,6 +82,19 @@ export async function startFakeCyclos() {
       return json(res, 200, [{ type: { internalName: "membre" }, currency: state.currency }]);
     }
     if (key === "GET /self/accounts/membre") {
+      if (!state.indicators) {
+        return json(res, 200, {
+          status: {
+            balance: "125.00",
+            availableBalance: "125.00",
+            creditLimit: "0.00",
+            reservedAmount: "0.00",
+            beginDate: "2026-01-01T00:00:00.000+01:00",
+            endDate: "2026-02-01T00:00:00.000+01:00",
+            upperCreditLimit: "1000.00",
+          },
+        });
+      }
       if (state.totals) return json(res, 200, { status: state.totals });
       const sum = (list) => list.reduce((total, e) => total + Math.abs(Number(e.amount)), 0).toFixed(2);
       const incoming = state.entries.filter((e) => Number(e.amount) > 0);
