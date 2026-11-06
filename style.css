@@ -1,0 +1,5 @@
+/* Base styles; the full layout comes in a later step. */
+body {
+  font-family: system-ui, sans-serif;
+  margin: 1rem;
+}

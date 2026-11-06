@@ -1,10 +1,16 @@
 import http from "node:http";
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { DateTime } from "luxon";
 
 const BASE = "https://demo.cyclos.org/api";
 const ZONE = "Europe/Paris";
-const PORT = 3000;
+const PORT = envNumber("PORT", 3000);
 const COOKIE = "session";
 
 // Reads a positive number from the environment, falls back to the default
@@ -121,20 +127,44 @@ async function closeCyclosSession(sessionToken) {
   }
 }
 
-// Parses "HH:mm" into hour/minute, or returns null if invalid.
-function parseTime(value) {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value ?? "");
-  return match ? { hour: Number(match[1]), minute: Number(match[2]) } : null;
+// Format of <input type="datetime-local"> values (no seconds, no zone).
+const INPUT_FORMAT = "yyyy-MM-dd'T'HH:mm";
+
+// The stylesheet is a static file read once at startup and served on /style.css
+// (the CSP forbids inline styles, so every page links to it).
+const STYLE_CSS = readFileSync(new URL("./style.css", import.meta.url));
+const STYLE_ETAG = `"${createHash("sha256").update(STYLE_CSS).digest("hex").slice(0, 16)}"`;
+
+// Default and preset ranges for the filter form, in ZONE wall-clock time.
+// An unknown preset is ignored (same as no preset: today so far).
+function presetRange(preset, now = DateTime.now().setZone(ZONE)) {
+  const minute = now.startOf("minute");
+  switch (preset) {
+    case "hier": {
+      const yesterday = minute.minus({ days: 1 });
+      return {
+        start: yesterday.startOf("day"),
+        end: yesterday.set({ hour: 23, minute: 59 }),
+      };
+    }
+    case "6h":
+      return { start: minute.minus({ hours: 6 }), end: minute };
+    default:
+      return { start: minute.startOf("day"), end: minute };
+  }
 }
 
-// The merchant's chosen time range, on the current day.
-// The day is computed in ZONE, not in the machine's timezone,
-// so the result is identical on a laptop in Paris and a UTC server.
-async function fetchStatement(sessionToken, startTime, endTime) {
-  const now = DateTime.now().setZone(ZONE);
-  const from = now.startOf("day").set(startTime);
-  const to = now.startOf("day").set(endTime);
+// Minimal validation of the submitted range (completed in the next step).
+function parseRange(startValue, endValue) {
+  const from = DateTime.fromFormat(startValue ?? "", INPUT_FORMAT, { zone: ZONE });
+  const to = DateTime.fromFormat(endValue ?? "", INPUT_FORMAT, { zone: ZONE });
+  if (!from.isValid || !to.isValid) return { error: "Date invalide." };
+  if (to <= from) return { error: "La fin doit être après le début." };
+  return { from, to };
+}
 
+// Statement for the merchant's chosen range (`from`/`to` are DateTimes in ZONE).
+async function fetchStatement(sessionToken, from, to) {
   const period = new URLSearchParams();
   // Cyclos expects instants, so both bounds are converted back to UTC.
   period.append("datePeriod", from.toUTC().toISO());
@@ -167,6 +197,8 @@ function htmlPage(title, body) {
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/style.css">
   <title>${escapeHtml(title)}</title>
 </head>
 <body>
@@ -238,19 +270,33 @@ function renderAccessDenied(csrfToken) {
   );
 }
 
-function renderFilters(csrfToken, error) {
+// `values` are the start/end strings to put in the fields: either computed
+// by presetRange(), or (after a validation error) exactly what the user typed.
+function renderFilters(csrfToken, values, error) {
   return htmlPage(
     "Choisir la plage horaire",
     `<h1>Choisir la plage horaire</h1>
-  ${error ? `<p>${escapeHtml(error)}</p>` : ""}
+  ${error ? `<p class="erreur" role="alert">${escapeHtml(error)}</p>` : ""}
+  <p class="raccourcis">Raccourcis :
+    <a href="/filtres?preset=aujourdhui">Aujourd'hui</a>
+    <a href="/filtres?preset=hier">Hier</a>
+    <a href="/filtres?preset=6h">6 dernières heures</a>
+  </p>
   <form method="post" action="/releve">
     <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
-    <p><label>Début : <input type="time" name="start" value="00:00" required></label></p>
-    <p><label>Fin : <input type="time" name="end" value="23:59" required></label></p>
+    <p><label for="start">Début</label>
+      <input type="datetime-local" id="start" name="start" value="${escapeHtml(values.start)}" required></p>
+    <p><label for="end">Fin</label>
+      <input type="datetime-local" id="end" name="end" value="${escapeHtml(values.end)}" required></p>
     <p><button type="submit">Voir le relevé</button></p>
   </form>
   ${logoutForm(csrfToken)}`,
   );
+}
+
+// Field values for a range computed by the server.
+function rangeValues({ start, end }) {
+  return { start: start.toFormat(INPUT_FORMAT), end: end.toFormat(INPUT_FORMAT) };
 }
 
 function renderStatement({ from, to, totals, entries }, csrfToken) {
@@ -393,7 +439,8 @@ function cookieHeader(value, maxAgeSeconds) {
 const clearCookie = cookieHeader("", 0);
 
 const server = http.createServer(async (req, res) => {
-  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const { pathname } = url;
   const route = `${req.method} ${pathname}`;
 
   // Security headers, on every response. writeHead() later merges its own
@@ -484,13 +531,34 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      case "GET /style.css": {
+        // Public and static: cacheable, unlike the pages (no-store by default).
+        const headers = {
+          "Cache-Control": "public, max-age=3600",
+          ETag: STYLE_ETAG,
+        };
+        if (req.headers["if-none-match"] === STYLE_ETAG) {
+          res.writeHead(304, headers);
+          res.end();
+          return;
+        }
+        send(res, 200, "text/css", STYLE_CSS, headers);
+        return;
+      }
+
       case "GET /filtres": {
         const session = getSession(req);
         if (!session) {
           redirect(res, "/");
           return;
         }
-        send(res, 200, "text/html", renderFilters(session.session.csrfToken));
+        const values = rangeValues(presetRange(url.searchParams.get("preset")));
+        send(
+          res,
+          200,
+          "text/html",
+          renderFilters(session.session.csrfToken, values),
+        );
         return;
       }
 
@@ -516,27 +584,17 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        const startTime = parseTime(form.get("start"));
-        const endTime = parseTime(form.get("end"));
-
-        if (!startTime || !endTime) {
+        const values = {
+          start: form.get("start") ?? "",
+          end: form.get("end") ?? "",
+        };
+        const range = parseRange(values.start, values.end);
+        if (range.error) {
           send(
             res,
             400,
             "text/html",
-            renderFilters(csrfToken, "Heures invalides."),
-          );
-          return;
-        }
-        if (DateTime.fromObject(startTime) >= DateTime.fromObject(endTime)) {
-          send(
-            res,
-            400,
-            "text/html",
-            renderFilters(
-              csrfToken,
-              "L'heure de fin doit être après l'heure de début.",
-            ),
+            renderFilters(csrfToken, values, range.error),
           );
           return;
         }
@@ -544,8 +602,8 @@ const server = http.createServer(async (req, res) => {
         try {
           const statement = await fetchStatement(
             session.session.sessionToken,
-            startTime,
-            endTime,
+            range.from,
+            range.to,
           );
           send(res, 200, "text/html", renderStatement(statement, csrfToken));
         } catch (error) {
