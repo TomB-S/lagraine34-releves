@@ -313,6 +313,11 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+// An error message: never conveyed by colour alone (icon + "Erreur :" label).
+function errorMessage(text) {
+  return `<p class="erreur" role="alert"><span class="icone" aria-hidden="true">⚠</span> <strong>Erreur :</strong> ${text}</p>`;
+}
+
 function htmlPage(title, body) {
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -323,7 +328,13 @@ function htmlPage(title, body) {
   <title>${escapeHtml(title)}</title>
 </head>
 <body>
+  <header class="entete">
+    <span class="logo"><img src="/logo.png" width="104" height="40" alt="La Graine 34, monnaie locale"></span>
+    <span class="nom-outil">Relevés de service</span>
+  </header>
+  <div class="page">
   ${body}
+  </div>
 </body>
 </html>`;
 }
@@ -344,7 +355,7 @@ function renderLoginFailed() {
   return htmlPage(
     "Connexion échouée",
     `<h1>Connexion échouée</h1>
-  <p>Identifiant ou mot de passe incorrect.</p>
+  ${errorMessage("Identifiant ou mot de passe incorrect.")}
   <p><a href="/">Réessayer</a></p>`,
   );
 }
@@ -354,7 +365,7 @@ function renderTooManyAttempts(retryAfterSeconds) {
   return htmlPage(
     "Trop de tentatives",
     `<h1>Trop de tentatives</h1>
-  <p>Trop d'échecs de connexion depuis votre adresse. Réessayez dans ${minutes} minute${minutes > 1 ? "s" : ""}.</p>`,
+  ${errorMessage(`Trop d'échecs de connexion depuis votre adresse. Réessayez dans ${minutes} minute${minutes > 1 ? "s" : ""}.`)}`,
   );
 }
 
@@ -365,7 +376,7 @@ function renderForbidden(message, csrfToken) {
   return htmlPage(
     "Requête refusée",
     `<h1>Requête refusée</h1>
-  <p>${escapeHtml(message)}</p>
+  ${errorMessage(escapeHtml(message))}
   ${back}`,
   );
 }
@@ -386,7 +397,7 @@ function renderAccessDenied(csrfToken) {
   return htmlPage(
     "Accès refusé",
     `<h1>Accès refusé</h1>
-  <p>Votre compte n'a pas l'autorisation d'utiliser cet outil.</p>
+  ${errorMessage("Votre compte n'a pas l'autorisation d'utiliser cet outil.")}
   ${links}`,
   );
 }
@@ -397,7 +408,7 @@ function renderFilters(csrfToken, values, error) {
   return htmlPage(
     "Choisir la plage horaire",
     `<h1>Choisir la plage horaire</h1>
-  ${error ? `<p class="erreur" role="alert">${escapeHtml(error)}</p>` : ""}
+  ${error ? errorMessage(escapeHtml(error)) : ""}
   <p class="raccourcis">Raccourcis :
     <a href="/filtres?preset=aujourdhui">Aujourd'hui</a>
     <a href="/filtres?preset=hier">Hier</a>
