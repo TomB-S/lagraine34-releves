@@ -73,11 +73,11 @@ class LoginError extends Error {}
 // Cyclos answered 403: the account is known but not allowed to do this.
 // This is not a login failure, the local session must be kept.
 class AccessDeniedError extends Error {
-  // `noMoneyAccount`: the 403 comes from GET /self/accounts, which is what
+  // `accountsDenied`: the 403 comes from GET /self/accounts, which is what
   // Cyclos answers to a user who has no money account (not a merchant).
-  constructor(message, { noMoneyAccount = false } = {}) {
+  constructor(message, { accountsDenied = false } = {}) {
     super(message);
-    this.noMoneyAccount = noMoneyAccount;
+    this.accountsDenied = accountsDenied;
   }
 }
 
@@ -159,7 +159,7 @@ async function api(path, sessionToken, options = {}) {
   }
   if (response.status === 403) {
     throw new AccessDeniedError(`403 on ${path}`, {
-      noMoneyAccount: path === "/self/accounts" && !options.method,
+      accountsDenied: path === "/self/accounts" && !options.method,
     });
   }
   if (!response.ok) {
@@ -401,7 +401,7 @@ async function fetchStatement(sessionToken, { from, to, until }) {
   const accounts = await (await api("/self/accounts", sessionToken)).json();
   if (Array.isArray(accounts) && accounts.length === 0) {
     console.error("Cyclos GET /self/accounts -> 200 liste vide (aucun compte)");
-    throw new AccessDeniedError("empty account list", { noMoneyAccount: true });
+    throw new AccessDeniedError("empty account list", { accountsDenied: true });
   }
   const accountType = accounts[0].type.internalName;
   const currency = accounts[0].currency;
@@ -541,7 +541,7 @@ function renderAccessDenied(csrfToken) {
 // Cyclos refuses (403) or gives nothing (empty list) on GET /self/accounts:
 // either no money account, or no banking right for the API session. The
 // session stays open: the user can go back or log out and use another account.
-function renderNoMoneyAccount(csrfToken) {
+function renderAccountsDenied(csrfToken) {
   return htmlPage(
     "Accès aux comptes refusé",
     `<h1>Accès aux comptes refusé</h1>
@@ -795,8 +795,8 @@ async function loadStatement(req, res, { id, session }) {
         res,
         403,
         "text/html",
-        error.noMoneyAccount
-          ? renderNoMoneyAccount(csrfToken)
+        error.accountsDenied
+          ? renderAccountsDenied(csrfToken)
           : renderAccessDenied(csrfToken),
       );
       return null;
