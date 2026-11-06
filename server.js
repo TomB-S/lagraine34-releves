@@ -155,6 +155,9 @@ function presetRange(preset, now = DateTime.now().setZone(ZONE)) {
 }
 
 const MAX_RANGE_DAYS = 31;
+// The transaction list is read page by page, up to MAX_ROWS lines in total.
+const PAGE_SIZE = envNumber("HISTORY_PAGE_SIZE", 200);
+const MAX_ROWS = envNumber("HISTORY_MAX_ROWS", 2000);
 const INPUT_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
 // Parses one submitted datetime-local value. `label` ("début"/"fin") is used
@@ -229,11 +232,26 @@ async function fetchStatement(sessionToken, { from, to, until }) {
   const totals = await (
     await api(`/self/accounts/${accountType}?${period}`, sessionToken)
   ).json();
-  const entries = await (
-    await api(`/self/accounts/${accountType}/history?${period}`, sessionToken)
-  ).json();
+  // History pages, most recent first. Reading stops at MAX_ROWS lines; the
+  // totals above come from a dedicated endpoint, so they stay exact anyway.
+  const entries = [];
+  let truncated = false;
+  for (let page = 0; ; page += 1) {
+    const response = await api(
+      `/self/accounts/${accountType}/history?${period}&page=${page}&pageSize=${PAGE_SIZE}`,
+      sessionToken,
+    );
+    entries.push(...(await response.json()));
+    const hasNext = response.headers.get("x-has-next-page") === "true";
+    if (entries.length > MAX_ROWS || (entries.length === MAX_ROWS && hasNext)) {
+      truncated = true;
+      entries.length = MAX_ROWS;
+      break;
+    }
+    if (!hasNext) break;
+  }
 
-  return { from, to, totals, entries };
+  return { from, to, totals, entries, truncated };
 }
 
 // Values come from a remote API (or the user): escape them before putting them in HTML.
@@ -352,7 +370,7 @@ function rangeValues({ start, end }) {
   return { start: start.toFormat(INPUT_FORMAT), end: end.toFormat(INPUT_FORMAT) };
 }
 
-function renderStatement({ from, to, totals, entries }, csrfToken) {
+function renderStatement({ from, to, totals, entries, truncated }, csrfToken) {
   const rows = entries
     .map((entry) => {
       // Each stored instant is rendered back into Paris wall-clock time.
@@ -367,6 +385,7 @@ function renderStatement({ from, to, totals, entries }, csrfToken) {
     "Relevé",
     `<h1>Relevé du ${from.toFormat("dd/MM/yyyy")}</h1>
   <p>De ${from.toFormat("HH:mm")} à ${to.toFormat("HH:mm")}</p>
+  ${truncated ? `<p class="avertissement" role="alert">Attention : la liste est limitée à ${MAX_ROWS} lignes (les plus récentes). Les totaux ci-dessous restent exacts : ils sont calculés par Cyclos sur toute la plage.</p>` : ""}
   <ul>
       ${rows || "<li>Aucune transaction sur cette plage</li>"}
   </ul>
