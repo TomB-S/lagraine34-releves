@@ -1,5 +1,5 @@
-// Connexion, limitation des tentatives, sessions, déconnexion, CSRF, refus 403.
-// Vrai serveur + faux Cyclos local (voir test-support/), jamais le vrai Cyclos.
+// Login, attempt throttling, sessions, logout, CSRF, 403 refusals.
+// Real server + local fake Cyclos (see test-support/), never the real Cyclos.
 import { mock } from "node:test";
 import assert from "node:assert/strict";
 import { appTest, until, USER } from "../test-support/harness.js";
@@ -8,7 +8,7 @@ import { entry } from "../test-support/fake-cyclos.js";
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
 const MINUTE = 60_000;
 
-// ------------------------------------------------------------ connexion
+// ------------------------------------------------------------ login
 
 appTest("connexion réussie : 303 vers /filtres, cookie de session, jeton Cyclos jamais exposé", async (app) => {
   const res = await app.login();
@@ -17,7 +17,7 @@ appTest("connexion réussie : 303 vers /filtres, cookie de session, jeton Cyclos
   const cookie = res.headers.get("set-cookie");
   assert.match(cookie, /^session=[0-9a-f-]{36}; HttpOnly; SameSite=Lax; Path=\/; Max-Age=28800$/);
 
-  // Un seul appel à Cyclos, avec le mot de passe en Basic, une seule fois.
+  // A single call to Cyclos, with the password in Basic, only once.
   const calls = app.cyclos.calls("POST", "/auth/session");
   assert.equal(calls.length, 1);
   assert.equal(
@@ -31,7 +31,7 @@ appTest("connexion réussie : 303 vers /filtres, cookie de session, jeton Cyclos
   assert.match(html, /Choisir la plage horaire/);
   assert.ok(!html.includes("jeton-1"), "le jeton Cyclos ne doit pas être dans la page");
   assert.ok(!cookie.includes("jeton-1"));
-  // Les appels suivants à Cyclos utilisent le jeton, jamais le mot de passe.
+  // Later calls to Cyclos use the token, never the password.
   await app.request("/releve", { method: "POST", form: { csrf: await app.csrf(), ...RANGE } });
   for (const call of app.cyclos.state.requests.filter((r) => r.path !== "/auth/session" || r.method !== "POST")) {
     assert.equal(call.headers["session-token"], "jeton-1");
@@ -47,7 +47,7 @@ appTest("connexion refusée : 401, pas de cookie, page « Connexion échouée »
   assert.match(html, /Connexion échouée/);
   assert.match(html, /Identifiant ou mot de passe incorrect/);
   assert.ok(!html.includes("mauvais"));
-  assert.equal((await app.request("/filtres")).status, 303); // toujours pas de session
+  assert.equal((await app.request("/filtres")).status, 303); // still no session
 });
 
 appTest("connexion : champs vides -> 401 sans appeler Cyclos", async (app) => {
@@ -60,7 +60,7 @@ appTest("connexion : champs vides -> 401 sans appeler Cyclos", async (app) => {
 
 appTest("connexion : identifiants avec accents et caractères non latins transmis en UTF-8", async (app) => {
   const res = await app.login({ login: "Élodie", password: "pässwörd:日本" });
-  assert.equal(res.status, 401); // inconnus du faux Cyclos, mais la requête a bien été faite
+  assert.equal(res.status, 401); // unknown to the fake Cyclos, but the request was indeed made
   const [call] = app.cyclos.calls("POST", "/auth/session");
   assert.equal(
     Buffer.from(call.headers.authorization.replace("Basic ", ""), "base64").toString("utf-8"),
@@ -108,7 +108,7 @@ appTest("Origin étranger, absent ou « null » : connexion refusée avant tout 
     assert.equal(res.headers.get("set-cookie"), null);
   }
   assert.equal(app.cyclos.calls("POST", "/auth/session").length, 0);
-  // Même origine, par Origin ou, à défaut, par Referer.
+  // Same origin, through Origin or, failing that, Referer.
   assert.equal((await attempt({ Origin: app.base })).status, 303);
   app.cookie = "";
   assert.equal((await attempt({ Referer: `${app.base}/` })).status, 303);
@@ -121,12 +121,12 @@ appTest("le mot de passe n'apparaît ni dans les réponses ni dans les logs", as
     seen.push(JSON.stringify([...res.headers]), await res.text());
   };
 
-  await note(await app.login({ password: secret })); // refusé
-  await note(await app.request("/connexion", { method: "POST", form: { login: USER.login, password: secret } })); // Origin manquant
+  await note(await app.login({ password: secret })); // refused
+  await note(await app.request("/connexion", { method: "POST", form: { login: USER.login, password: secret } })); // missing Origin
   app.cyclos.force("POST /auth/session", 500);
-  await note(await app.login({ password: secret })); // Cyclos en panne -> erreur journalisée
+  await note(await app.login({ password: secret })); // Cyclos down -> error logged
   app.cyclos.force("POST /auth/session", "drop");
-  await note(await app.login({ password: secret })); // connexion coupée -> erreur journalisée
+  await note(await app.login({ password: secret })); // connection cut -> error logged
   app.cyclos.state.forced.clear();
   app.cyclos.force("POST /auth/session", 403);
   await note(await app.login({ password: secret }));
@@ -134,7 +134,7 @@ appTest("le mot de passe n'apparaît ni dans les réponses ni dans les logs", as
   for (let i = 0; i < 5; i += 1) await app.login({ password: secret });
   await note(await app.login({ password: secret })); // 429
 
-  // Connexion réussie : toutes les pages suivantes aussi.
+  // Successful login: all the following pages too.
   await note(await app.login());
   await note(await app.request("/filtres"));
   await note(await app.request("/releve", { method: "POST", form: { csrf: await app.csrf(), ...RANGE } }));
@@ -166,7 +166,7 @@ appTest("session : expiration après 20 minutes d'inactivité, jeton Cyclos ferm
   mockClock();
   await app.loggedIn();
   mock.timers.tick(19 * MINUTE);
-  assert.equal((await app.request("/filtres")).status, 200); // l'activité prolonge la session
+  assert.equal((await app.request("/filtres")).status, 200); // activity extends the session
   mock.timers.tick(19 * MINUTE);
   assert.equal((await app.request("/filtres")).status, 200);
   mock.timers.tick(20 * MINUTE + 1);
@@ -174,7 +174,7 @@ appTest("session : expiration après 20 minutes d'inactivité, jeton Cyclos ferm
   assert.equal(res.status, 303);
   assert.equal(res.headers.get("location"), "/");
   await until(() => app.cyclos.state.deleted.includes("jeton-1"), "DELETE /auth/session");
-  // La session n'existe plus, même avec l'ancien cookie.
+  // The session no longer exists, even with the old cookie.
   assert.equal((await app.request("/filtres")).status, 303);
 });
 
@@ -185,7 +185,7 @@ appTest("session : durée absolue de 8 heures même avec une activité continue"
     mock.timers.tick(10 * MINUTE);
     assert.equal((await app.request("/filtres")).status, 200, `après ${elapsed} min`);
   }
-  mock.timers.tick(15 * MINUTE); // 8 h 05 au total, 15 min depuis la dernière activité
+  mock.timers.tick(15 * MINUTE); // 8 h 05 in total, 15 min since the last activity
   const res = await app.request("/filtres");
   assert.equal(res.status, 303);
   assert.equal(res.headers.get("location"), "/");
@@ -204,7 +204,7 @@ appTest("session : durées configurables (idleMs, maxMs)", { idleMs: 1000, maxMs
 appTest("nettoyage périodique : sessions expirées retirées et jeton fermé sans nouvelle requête", async (app) => {
   mockClock();
   await app.loggedIn();
-  app.server.sweep(); // rien d'expiré : la session reste
+  app.server.sweep(); // nothing expired: the session stays
   assert.equal(app.cyclos.state.deleted.length, 0);
   mock.timers.tick(21 * MINUTE);
   app.server.sweep();
@@ -227,7 +227,7 @@ appTest("déconnexion : session supprimée, DELETE envoyé à Cyclos, cookie eff
   assert.deepEqual(app.cyclos.state.deleted, ["jeton-1"]);
   assert.equal(app.cyclos.calls("DELETE", "/auth/session")[0].headers["session-token"], "jeton-1");
 
-  // L'ancien cookie ne donne plus rien.
+  // The old cookie no longer gives anything.
   app.cookie = oldCookie;
   assert.equal((await app.request("/filtres")).status, 303);
   assert.equal((await app.request("/releve", { method: "POST", form: { csrf, ...RANGE } })).status, 303);
@@ -253,7 +253,7 @@ appTest("déconnexion sans session : redirection vers / et cookie effacé", asyn
 
 appTest("jeton Cyclos expiré (401 loggedOut) : session locale supprimée et retour à /", async (app) => {
   for (const path of ["/releve", "/releve.pdf"]) {
-    // Chaque essai repart d'une session locale valide dont le jeton est refusé par Cyclos.
+    // Each attempt starts from a valid local session whose token is refused by Cyclos.
     const csrf = await app.loggedIn();
     app.cyclos.expireTokens();
     const res = await app.request(path, { method: "POST", form: { csrf, ...RANGE } });
@@ -335,7 +335,7 @@ appTest("GET /deconnexion : 405 avec Allow: POST, session conservée", async (ap
   assert.equal(app.cyclos.calls("DELETE", "/auth/session").length, 0);
 });
 
-// ------------------------------------------------------------ 403 de Cyclos
+// ------------------------------------------------------------ Cyclos 403
 
 for (const path of ["/releve", "/releve.pdf"]) {
   appTest(`403 de Cyclos sur ${path} : page « Accès refusé », session conservée`, async (app) => {

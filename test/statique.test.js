@@ -1,4 +1,4 @@
-// Fichiers statiques : /style.css, /logo.png, /fonts/*.woff2.
+// Static files: /style.css, /logo.png, /fonts/*.woff2.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { appTest, rawRequest } from "../test-support/harness.js";
@@ -86,7 +86,7 @@ appTest("/fonts/ : chemin non listé -> 404, y compris avec ../ ou ses variantes
   ];
   for (const path of paths) {
     const res = await rawRequest(app.base, { path });
-    const expected = path.includes("?") ? 200 : 404; // la requête (?x=) est ignorée pour la route
+    const expected = path.includes("?") ? 200 : 404; // the query (?x=) is ignored for the route
     assert.equal(res.status, expected, path);
     if (expected === 404) {
       assert.equal(res.body.toString(), "Page introuvable", path);

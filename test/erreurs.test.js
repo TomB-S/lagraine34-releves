@@ -1,4 +1,4 @@
-// Messages d'erreur clairs et journal serveur (diagnostic sans donnée sensible).
+// Clear error messages and server log (diagnosis without sensitive data).
 import assert from "node:assert/strict";
 import { appTest, USER } from "../test-support/harness.js";
 import { entry } from "../test-support/fake-cyclos.js";
@@ -17,7 +17,7 @@ for (const path of ["/releve", "/releve.pdf"]) {
     assert.match(res.headers.get("content-type"), /^text\/html/);
     const html = await res.text();
     assert.ok(html.includes(NO_ACCOUNT));
-    // Charte : icône, libellé « Erreur : », role="alert", aucun style ni script en ligne.
+    // Charter: icon, "Erreur :" label, role="alert", no inline style or script.
     assert.match(html, /<p class="erreur" role="alert"><span class="icone" aria-hidden="true">⚠<\/span> <strong>Erreur :<\/strong> Cyclos refuse/);
     assert.match(html, /<title>Accès aux comptes refusé<\/title>/);
     assert.match(html, /<h1>Accès aux comptes refusé<\/h1>/);
@@ -54,11 +54,11 @@ appTest("journal : une ligne par réponse non 2xx (méthode, chemin avec type de
   app.cyclos.force("GET /self/accounts/membre/history", 403);
   app.cyclos.state.entries = [entry(1)];
   await post(app, "/releve", csrf);
-  // Chemin avec le type de compte, sans la chaîne de requête (dates).
+  // Path with the account type, without the query string (dates).
   assert.ok(app.logs.includes("Cyclos GET /self/accounts/membre/history -> 403 code=forbidden"), app.logs.join("\n"));
   assert.ok(!app.logs.some((l) => l.includes("datePeriod") || l.includes("?")));
 
-  // Pas de ligne Cyclos pour les réponses 2xx.
+  // No Cyclos line for 2xx answers.
   app.cyclos.state.forced.clear();
   const before = app.logs.filter((l) => l.startsWith("Cyclos ")).length;
   assert.equal((await post(app, "/releve", csrf)).status, 200);
@@ -95,7 +95,7 @@ appTest("502 : échec réseau -> 'Impossible de joindre Cyclos', journalisé", a
 
 appTest("exception interne -> 500 'Erreur interne', pas 'Impossible de joindre'; message et pile journalisés", async (app) => {
   const csrf = await app.loggedIn();
-  app.cyclos.state.accountsBody = [{}]; // compte sans type : le code lit type.internalName -> TypeError
+  app.cyclos.state.accountsBody = [{}]; // account without a type: the code reads type.internalName -> TypeError
   const res = await post(app, "/releve", csrf);
   assert.equal(res.status, 500);
   const text = await res.text();

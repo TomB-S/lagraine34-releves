@@ -1,5 +1,5 @@
-// Démarre le vrai serveur (port aléatoire) face à un faux Cyclos, et fournit
-// un petit client HTTP qui garde le cookie de session.
+// Starts the real server (random port) against a fake Cyclos, and provides
+// a small HTTP client that keeps the session cookie.
 import http from "node:http";
 import { test, mock } from "node:test";
 import { startServer } from "../server.js";
@@ -21,7 +21,7 @@ export async function setup(options = {}) {
   const base = `http://127.0.0.1:${server.port}`;
   let cookie = "";
 
-  // fetch sans suivre les redirections ; ajoute le cookie de session courant.
+  // fetch without following redirects; adds the current session cookie.
   async function request(path, { method = "GET", form, headers = {}, body } = {}) {
     const init = { method, redirect: "manual", headers: { ...headers } };
     if (cookie) init.headers.Cookie = cookie;
@@ -37,7 +37,7 @@ export async function setup(options = {}) {
     return res;
   }
 
-  // Connexion avec les identifiants fictifs ; renvoie le jeton CSRF de la page /filtres.
+  // Login with the fictitious credentials; returns the CSRF token of the /filtres page.
   async function login({ login = USER.login, password = USER.password } = {}) {
     const res = await request("/connexion", {
       method: "POST",
@@ -79,8 +79,8 @@ export async function setup(options = {}) {
   };
 }
 
-// Attend (jusqu'à 2 s) qu'une condition devienne vraie, par exemple l'arrivée
-// d'un appel sans réponse attendue (fermeture du jeton Cyclos).
+// Waits (up to 2 s) for a condition to become true, for example the arrival
+// of a call with no awaited answer (closing of the Cyclos token).
 export async function until(condition, what = "condition") {
   for (let i = 0; i < 100; i += 1) {
     if (condition()) return;
@@ -89,9 +89,9 @@ export async function until(condition, what = "condition") {
   throw new Error(`Délai dépassé : ${what}`);
 }
 
-// Un test avec son propre serveur et son propre faux Cyclos (port aléatoire),
-// arrêtés à la fin. `app.logs` contient tout ce que le serveur a écrit avec
-// console.* pendant le test (qui n'apparaît donc pas dans la sortie).
+// A test with its own server and its own fake Cyclos (random port),
+// stopped at the end. `app.logs` holds everything the server wrote with
+// console.* during the test (which therefore does not show in the output).
 export function appTest(name, optionsOrFn, maybeFn) {
   const options = typeof optionsOrFn === "function" ? {} : optionsOrFn;
   const fn = typeof optionsOrFn === "function" ? optionsOrFn : maybeFn;
@@ -112,8 +112,8 @@ export function appTest(name, optionsOrFn, maybeFn) {
   });
 }
 
-// Requête HTTP brute (chemin envoyé tel quel, corps en morceaux possible), pour
-// ce que fetch normalise ou refuse d'envoyer.
+// Raw HTTP request (path sent as is, body in chunks possible), for
+// what fetch normalises or refuses to send.
 export function rawRequest(base, { method = "GET", path = "/", headers = {}, chunks } = {}) {
   const { hostname, port } = new URL(base);
   return new Promise((resolve, reject) => {

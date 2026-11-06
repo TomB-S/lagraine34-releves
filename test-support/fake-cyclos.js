@@ -1,10 +1,10 @@
-// Faux Cyclos pour les tests : un petit serveur HTTP local qui imite les
-// endpoints utilisés par le serveur. Aucun réseau externe, identifiants fictifs.
+// Fake Cyclos for the tests: a small local HTTP server that imitates the
+// endpoints used by the server. No external network, fictitious credentials.
 import http from "node:http";
 
 export const USER = { login: "commercant", password: "motdepasse-de-test", display: "Boutique de Test" };
 
-// Crée une ligne d'historique au format Cyclos (montant négatif = paiement sorti).
+// Builds a history line in Cyclos' format (negative amount = outgoing payment).
 export function entry(n, { amount = "10.00", date, description, who = "Client" } = {}) {
   const base = Date.parse("2026-01-10T08:00:00Z") + n * 60_000;
   return {
@@ -18,18 +18,18 @@ export function entry(n, { amount = "10.00", date, description, who = "Client" }
 
 export async function startFakeCyclos() {
   const state = {
-    requests: [], // { method, path, headers, query } de chaque appel reçu
+    requests: [], // { method, path, headers, query } of each call received
     tokens: new Set(),
-    deleted: [], // jetons fermés par DELETE /auth/session
-    entries: [], // du plus récent au plus ancien, comme Cyclos
-    pageSize: null, // si défini, impose la taille de page (sinon celle demandée)
-    totals: null, // si défini, remplace les totaux calculés
-    // false : reproduit la vraie instance, qui répond sans incoming, outgoing
-    // ni netInflow (seulement les soldes et les limites de crédit).
+    deleted: [], // tokens closed by DELETE /auth/session
+    entries: [], // most recent first, like Cyclos
+    pageSize: null, // when set, forces the page size (otherwise the requested one)
+    totals: null, // when set, replaces the computed totals
+    // false: reproduces the real instance, which answers without incoming, outgoing
+    // or netInflow (only balances and credit limits).
     indicators: true,
-    accountsBody: undefined, // si défini, remplace la réponse de GET /self/accounts
+    accountsBody: undefined, // when set, replaces the answer to GET /self/accounts
     displayName: USER.display,
-    // Réponses forcées : "METHOD /chemin" -> statut (ex. "GET /self/accounts": 403).
+    // Forced answers: "METHOD /path" -> status (e.g. "GET /self/accounts": 403).
     forced: new Map(),
     currency: { name: "Graines", decimalDigits: 2 },
     counter: 0,
@@ -123,9 +123,9 @@ export async function startFakeCyclos() {
   return {
     url: `http://127.0.0.1:${server.address().port}/api`,
     state,
-    // Tous les jetons deviennent invalides (jeton expiré côté Cyclos).
+    // Every token becomes invalid (token expired on the Cyclos side).
     expireTokens: () => state.tokens.clear(),
-    // Les appels "METHOD /chemin" répondent ce statut ("drop" coupe la connexion).
+    // Calls "METHOD /path" answer with this status ("drop" cuts the connection).
     force: (key, status) => state.forced.set(key, status),
     calls: (method, path) => state.requests.filter((r) => r.method === method && r.path === path),
     close: () =>

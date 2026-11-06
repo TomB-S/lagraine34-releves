@@ -1,6 +1,6 @@
-// Totaux du résumé quand Cyclos répond sans incoming/outgoing/netInflow
-// (comportement observé sur la vraie instance) : calculés à partir des
-// transactions si la liste est complète, "Non disponible" sinon.
+// Summary totals when Cyclos answers without incoming/outgoing/netInflow
+// (behaviour observed on the real instance): computed from the
+// transactions if the list is complete, "Non disponible" otherwise.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DateTime } from "luxon";
@@ -13,11 +13,11 @@ const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
 const NNBSP = " ";
 const NA = "Non disponible";
 
-// Lignes avec les montants donnés (la plus récente en premier, comme Cyclos).
+// Lines with the given amounts (most recent first, like Cyclos).
 const withAmounts = (amounts) =>
   amounts.map((amount, n) => entry(n, { amount })).reverse();
 
-// n lignes : trois reçues pour une sortie.
+// n lines: three incoming for one outgoing.
 function history(count) {
   const list = [];
   for (let n = count - 1; n >= 0; n -= 1) {
@@ -41,7 +41,7 @@ async function ask(app, state, path = "/releve") {
 }
 const page = async (app, state) => (await ask(app, state)).text();
 
-// Le résumé tel qu'imprimé dans le PDF : [libellé, valeur] (espaces fines -> espaces).
+// The summary as printed in the PDF: [label, value] (narrow spaces -> spaces).
 async function pdfSummary(app, state, labels) {
   const res = await ask(app, state, "/releve.pdf");
   assert.equal(res.status, 200);
@@ -58,7 +58,7 @@ async function pdfSummary(app, state, labels) {
 }
 const asPdf = (summary) => summary.map(([label, value]) => [label, value.replaceAll(NNBSP, " ")]);
 
-// ------------------------------------------------- totaux calculés par le code
+// ------------------------------------------------- totals computed by the code
 
 appTest("sans indicateurs : totaux calculés sur plusieurs pages (450 lignes, 3 pages)", async (app) => {
   const entries = history(450);
@@ -76,7 +76,7 @@ appTest("sans indicateurs : totaux calculés sur plusieurs pages (450 lignes, 3 
     [`${outgoing.length} paiements sortis`, fr(outSum)],
     ["Solde net", `${inSum - outSum >= 0 ? "+" : "-"}${fr(inSum - outSum)}`],
   ]);
-  // Et la somme des lignes affichées est bien égale au solde net.
+  // And the sum of the displayed lines does equal the net balance.
   const shown = [...html.matchAll(/<span class="montant">(.*?)<\/span>/g)].map((m) =>
     Math.round(Number(m[1].replaceAll(NNBSP, "").replace(",", ".")) * 100));
   assert.equal(shown.reduce((t, c) => t + c, 0), inSum - outSum);
@@ -89,14 +89,14 @@ appTest("sans indicateurs : précision décimale (0,1 + 0,2 = 0,30 exact)", asyn
     ["3 paiements sortis", "0,50"],
     ["Solde net", "-0,20"],
   ]);
-  // Beaucoup de petits montants : un flottant dériverait (0.1 * 10 000).
+  // Many small amounts: a float would drift (0.1 * 10 000).
   const many = await page(app, { entries: withAmounts(Array(10000).fill("0.10")).slice(0, 1500) });
   assert.deepEqual(summaryOf(many), [
     ["1500 paiements reçus", "150,00"],
     ["0 paiement sorti", "0,00"],
     ["Solde net", "+150,00"],
   ]);
-  // Montants entiers ou à une seule décimale, et gros montants.
+  // Whole amounts or with a single decimal, and large amounts.
   const mixed = await page(app, { entries: withAmounts(["5", "1234567.5", "-0.05"]) });
   assert.deepEqual(summaryOf(mixed), [
     ["2 paiements reçus", `1${NNBSP}234${NNBSP}572,50`],
@@ -140,7 +140,7 @@ appTest("sans indicateurs : montant illisible -> 'Non disponible', jamais invent
   assert.equal(rowsOf(html).length, 2);
 });
 
-// ------------------------------------------------------------- liste tronquée
+// ------------------------------------------------------------- truncated list
 
 appTest("sans indicateurs : exactement 2000 lignes -> totaux calculés, pas d'avertissement", async (app) => {
   const html = await page(app, { indicators: false, entries: withAmounts(Array(2000).fill("1.50")) });
@@ -167,7 +167,7 @@ appTest("sans indicateurs : 2001 lignes -> 'Non disponible' x3, avertissement cl
   assert.ok(!/\+?0,00|3 000/.test(summaryOf(html).map(([, v]) => v).join()), "aucun faux chiffre");
 });
 
-// ------------------------------------------------------------ page et PDF
+// ------------------------------------------------------------ page and PDF
 
 appTest("sans indicateurs : page et PDF montrent le même résumé (calculé)", async (app) => {
   const state = { indicators: false, entries: history(120) };
@@ -187,10 +187,10 @@ appTest("sans indicateurs : page et PDF montrent le même résumé et le même a
   assert.match(text.replace(/\s+/g, " "), /totaux du résumé ne peuvent pas être calculés au-delà de 2000 transactions/);
 });
 
-// ------------------------------------------------ mode avec indicateurs inchangé
+// ------------------------------------------------ indicators mode unchanged
 
 appTest("avec indicateurs : les totaux de Cyclos sont repris tels quels (même s'ils diffèrent des lignes)", async (app) => {
-  // Valeurs volontairement différentes de la somme des lignes : le code ne recalcule rien.
+  // Values deliberately different from the sum of the lines: the code recomputes nothing.
   const html = await page(app, {
     entries: withAmounts(["1.00", "-1.00"]),
     totals: { incoming: { count: 7, sum: "70.00" }, outgoing: { count: 3, sum: "30.00" }, netInflow: "40.00" },
@@ -214,7 +214,7 @@ appTest("avec indicateurs : liste tronquée -> totaux de Cyclos et mention 'rest
   assert.ok(!html.includes(NA));
 });
 
-// --------------------------------------------------------- lecture défensive
+// --------------------------------------------------------- defensive reading
 
 const at = (text) => DateTime.fromFormat(text, "yyyy-MM-dd'T'HH:mm", { zone: "Europe/Paris" });
 const base = {

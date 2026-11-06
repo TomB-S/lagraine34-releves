@@ -1,4 +1,4 @@
-// POST /releve (page) et POST /releve.pdf, avec le faux Cyclos.
+// POST /releve (page) and POST /releve.pdf, with the fake Cyclos.
 import assert from "node:assert/strict";
 import { DateTime } from "luxon";
 import { appTest } from "../test-support/harness.js";
@@ -8,7 +8,7 @@ import { pdfPages } from "../test-support/pdf-text.js";
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
 const NNBSP = "\u202f";
 
-// n transactions, la plus récente en premier comme Cyclos ; une sur quatre sort.
+// n transactions, most recent first like Cyclos; one in four is outgoing.
 function history(count) {
   const list = [];
   for (let n = count - 1; n >= 0; n -= 1) {
@@ -40,21 +40,21 @@ appTest("/releve : relevé cohérent avec les totaux sur plusieurs pages (450 li
   assert.match(res.headers.get("content-type"), /^text\/html; charset=utf-8$/);
   const html = await res.text();
 
-  // Trois pages de 200 demandées, dans l'ordre.
+  // Three pages of 200 requested, in order.
   const pages = app.cyclos.calls("GET", "/self/accounts/membre/history");
   assert.deepEqual(pages.map((p) => [p.query.get("page"), p.query.get("pageSize")]), [["0", "200"], ["1", "200"], ["2", "200"]]);
-  // Les bornes sont envoyées en UTC (Paris en janvier = UTC+1), fin incluant la dernière minute.
+  // Bounds are sent in UTC (Paris in January = UTC+1), the end including the last minute.
   for (const call of [...pages, ...app.cyclos.calls("GET", "/self/accounts/membre")]) {
     assert.deepEqual(call.query.getAll("datePeriod"), ["2026-01-09T23:00:00.000Z", "2026-01-10T22:59:59.999Z"]);
   }
 
-  // Toutes les lignes sont là, du plus ancien au plus récent, sans doublon.
+  // All lines are there, oldest to most recent, without duplicates.
   const numbers = [...html.matchAll(/<span class="numero">(.*?)<\/span>/g)].map((m) => m[1]);
   assert.equal(numbers.length, 450);
   assert.deepEqual(numbers, entries.map((e) => e.transactionNumber).reverse());
   assert.ok(!html.includes('class="avertissement"'));
 
-  // Le résumé est celui de Cyclos, et la somme des lignes affichées lui est égale.
+  // The summary is Cyclos' one, and the sum of the displayed lines equals it.
   const summary = summaryOf(html);
   const incoming = entries.filter((e) => Number(e.amount) > 0);
   const outgoing = entries.filter((e) => Number(e.amount) < 0);
@@ -70,7 +70,7 @@ appTest("/releve : relevé cohérent avec les totaux sur plusieurs pages (450 li
   assert.match(html, /<p class="commercant">Boutique de Test<\/p>/);
   assert.match(html, /<p class="periode">Du 10\/01\/2026 00:00 au 10\/01\/2026 23:59<\/p>/);
   assert.match(html, /Montants en Graines/);
-  // Formulaire PDF : mêmes dates, jeton CSRF de la session.
+  // PDF form: same dates, session CSRF token.
   assert.match(html, /action="\/releve\.pdf"[\s\S]*name="csrf" value="[0-9a-f]{64}"[\s\S]*name="start" value="2026-01-10T00:00"[\s\S]*name="end" value="2026-01-10T23:59"/);
 });
 
@@ -96,7 +96,7 @@ appTest("/releve : plafond de 2000 lignes -> avertissement, les plus récentes g
   assert.equal(numbers.length, 2000);
   assert.equal(numbers[0], "T00500", "la plus ancienne gardée");
   assert.equal(numbers.at(-1), "T02499", "la plus récente");
-  // Le résumé compte les 2500 transactions, pas les 2000 affichées.
+  // The summary counts the 2500 transactions, not the 2000 displayed.
   const incoming = entries.filter((e) => Number(e.amount) > 0).length;
   assert.equal(summaryOf(html)[0][0], `${incoming} paiements reçus`);
   assert.ok(app.cyclos.calls("GET", "/self/accounts/membre/history").length <= 11, "lecture arrêtée au plafond");
@@ -169,7 +169,7 @@ appTest("/releve : dates invalides -> 400 sur la page des filtres, valeurs saisi
 
 appTest("/releve : fin dans le futur acceptée (ramenée à maintenant)", async (app) => {
   const csrf = await app.loggedIn();
-  // Début hier, fin demain (heure de Paris), calculés par rapport à maintenant.
+  // Start yesterday, end tomorrow (Paris time), computed relative to now.
   const paris = (days) => DateTime.now().setZone("Europe/Paris").plus({ days }).toFormat("yyyy-MM-dd'T'HH:mm");
   const res = await app.request("/releve", { method: "POST", form: { csrf, start: paris(-1), end: paris(1) } });
   assert.equal(res.status, 200);
@@ -217,20 +217,20 @@ appTest("/releve.pdf : PDF valide, bons en-têtes, nom de fichier, contenu cohé
   assert.ok(lines.includes("Boutique de Test"));
   assert.ok(lines.includes("Du 10/01/2026 00:00 au 10/01/2026 23:59"));
   assert.ok(lines.includes("Montants en Graines"));
-  // Même résumé que la page HTML (espaces fines remplacées par des espaces).
+  // Same summary as the HTML page (narrow spaces replaced by spaces).
   for (const [label, value] of summaryOf(htmlText)) {
     const at = lines.indexOf(label);
     assert.ok(at >= 0, label);
     assert.equal(lines[at + 1], value.replaceAll(NNBSP, " "));
   }
-  // Toutes les transactions, une fois chacune, dans l'ordre de la page.
+  // All transactions, each once, in the order of the page.
   const numbers = lines.filter((l) => /^T\d{5}$/.test(l));
   assert.deepEqual(numbers, entries.map((e) => e.transactionNumber).reverse());
   assert.deepEqual(
     lines.filter((l) => /^[+-]\d+,\d\d$/.test(l)).slice(-entries.length),
     amountsOf(htmlText).map((a) => a.replaceAll(NNBSP, " ")),
   );
-  // Numérotation et en-têtes de colonnes répétés sur chaque page.
+  // Page numbering and column headers repeated on each page.
   pages.forEach((page, i) => {
     assert.ok(page.split("\n").includes(`Page ${i + 1} / ${pages.length}`), `numéro de la page ${i + 1}`);
   });

@@ -1,5 +1,5 @@
-// Tests de la charte graphique (HTML et CSS tels que le navigateur les reçoit).
-// Lancer : npm test. Vrai serveur + faux Cyclos local, aucun appel externe.
+// Tests of the graphic charter (HTML and CSS as the browser receives them).
+// Run: npm test. Real server + local fake Cyclos, no external call.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -9,7 +9,7 @@ import { entry } from "../test-support/fake-cyclos.js";
 const ROOT = new URL("../", import.meta.url);
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
 
-// Une page de chaque sorte, sous forme de HTML.
+// One page of each kind, as HTML.
 async function pages(app) {
   const html = {};
   const text = async (label, promise) => {

@@ -1,4 +1,4 @@
-// En-tête Channel vers Cyclos (variable CYCLOS_CHANNEL), avec le faux Cyclos.
+// Channel header sent to Cyclos (CYCLOS_CHANNEL variable), with the fake Cyclos.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -8,7 +8,7 @@ import { entry } from "../test-support/fake-cyclos.js";
 
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
 
-// Connexion, relevé (historique + totaux), puis déconnexion (DELETE du jeton).
+// Login, statement (history + totals), then logout (DELETE of the token).
 async function fullCycle(app) {
   app.cyclos.state.entries = [entry(1, { amount: "3.00" })];
   const csrf = await app.loggedIn();

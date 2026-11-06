@@ -1,4 +1,4 @@
-// « node server.js » démarre comme avant ; importer le fichier ne démarre rien.
+// "node server.js" starts as before; importing the file starts nothing.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";

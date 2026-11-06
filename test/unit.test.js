@@ -1,4 +1,4 @@
-// Tests unitaires des fonctions pures (aucun serveur, aucun réseau).
+// Unit tests of the pure functions (no server, no network).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DateTime } from "luxon";
@@ -14,7 +14,7 @@ import { pdfText } from "../ticket-pdf.js";
 
 const ZONE = "Europe/Paris";
 const at = (iso) => DateTime.fromISO(iso, { zone: ZONE });
-const NOW = at("2026-11-05T12:00:30"); // jeudi, heure d'hiver
+const NOW = at("2026-11-05T12:00:30"); // Thursday, winter time
 
 // ---------------------------------------------------------------- dates
 
@@ -75,7 +75,7 @@ test("parseRange : heure inexistante au passage à l'heure d'été (29 mars 2026
   assert.match(start.error, /heure de début saisie \(29\/03\/2026 à 02:30\) n'existe pas/);
   const end = parseRange("2026-03-29T01:00", "2026-03-29T02:30", now);
   assert.match(end.error, /heure de fin saisie \(29\/03\/2026 à 02:30\) n'existe pas/);
-  // Les heures voisines existent.
+  // The neighbouring hours exist.
   assert.equal(parseRange("2026-03-29T01:59", "2026-03-29T03:00", now).error, undefined);
 });
 
@@ -83,8 +83,8 @@ test("parseRange : heure ambiguë (25 octobre 2026, 02:30) acceptée, seconde oc
   const now = at("2026-11-01T12:00");
   const r = parseRange("2026-10-25T02:30", "2026-10-25T10:00", now);
   assert.equal(r.error, undefined);
-  // Limite connue : 02:30 existe deux fois (+02:00 puis +01:00), Luxon prend la
-  // seconde sans avertir l'utilisateur.
+  // Known limit: 02:30 exists twice (+02:00 then +01:00), Luxon takes the
+  // second without warning the user.
   assert.equal(r.from.offset, 60);
   assert.equal(r.from.toUTC().toISO(), "2026-10-25T01:30:00.000Z");
 });
@@ -110,7 +110,7 @@ test("escapeHtml : & < > \" échappés, & une seule fois", () => {
   assert.equal(escapeHtml("Café é ñ"), "Café é ñ");
 });
 
-// ---------------------------------------------------------------- montants
+// ---------------------------------------------------------------- amounts
 
 test("formatAmount : format français, espace fine insécable entre les milliers", () => {
   assert.equal(formatAmount("1234.5"), "1\u202f234,50");
@@ -173,7 +173,7 @@ test("pdfFilename : chiffres, tirets et _ seulement, même avec une langue par d
   assert.match(arabic, /^[A-Za-z0-9_.-]+$/);
 });
 
-// ---------------------------------------------------------------- résumé
+// ---------------------------------------------------------------- summary
 
 const totals = (incoming, outgoing, netInflow) => ({
   status: { incoming, outgoing, ...(netInflow === undefined ? {} : { netInflow }) },
@@ -209,7 +209,7 @@ test("ticketModel : solde net calculé quand Cyclos ne le donne pas, négatif, n
   const zero = ticketModel({ ...baseStatement, totals: totals({ count: 0, sum: "0.00" }, { count: 0, sum: "0.00" }) });
   assert.deepEqual(zero.summary.map((s) => s.label), ["0 paiement reçu", "0 paiement sorti", "Solde net"]);
   assert.equal(zero.summary[2].value, "0,00");
-  // 0.1 + 0.2 : pas d'erreur d'arrondi flottant.
+  // 0.1 + 0.2: no floating-point rounding error.
   const floats = ticketModel({ ...baseStatement, totals: totals({ count: 2, sum: "0.30" }, { count: 0, sum: "0.10" }) });
   assert.equal(floats.summary[2].value, "+0,20");
 });

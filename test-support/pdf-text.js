@@ -1,7 +1,7 @@
-// Lecture minimale du texte d'un PDF produit par pdfkit, sans dépendance :
-// les flux sont compressés en Flate, les textes écrits en hexadécimal (<..> Tj
-// ou [<..> n <..>] TJ) avec les polices standard (un octet par caractère,
-// Windows-1252). Suffit pour vérifier le contenu d'un ticket.
+// Minimal reading of the text of a PDF produced by pdfkit, without dependency:
+// streams are Flate-compressed, texts are written in hexadecimal (<..> Tj
+// or [<..> n <..>] TJ) with the standard fonts (one byte per character,
+// Windows-1252). Enough to check the content of a ticket.
 import { inflateSync } from "node:zlib";
 
 export function pdfPages(buffer) {
@@ -14,15 +14,15 @@ export function pdfPages(buffer) {
     try {
       content = inflateSync(buffer.subarray(start, end)).toString("latin1");
     } catch {
-      continue; // pas un flux Flate (image, polices...)
+      continue; // not a Flate stream (image, fonts...)
     }
-    if (!/\bBT\b/.test(content)) continue; // pas une page de texte
+    if (!/\bBT\b/.test(content)) continue; // not a text page
     pages.push(content);
   }
   return pages.map(textOf);
 }
 
-// Polices standard de pdfkit : un octet par caractère, en Windows-1252 (€, –, « »...).
+// pdfkit standard fonts: one byte per character, in Windows-1252 (€, –, « »...).
 const WIN_1252 = new TextDecoder("windows-1252");
 
 function decode(hex) {

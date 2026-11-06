@@ -1,4 +1,4 @@
-// En-têtes de sécurité, cache, limite de taille des corps, HTML sans style/script.
+// Security headers, cache, body size limit, HTML without style/script.
 import assert from "node:assert/strict";
 import { appTest, rawRequest, EXPECTED_CSP } from "../test-support/harness.js";
 import { entry } from "../test-support/fake-cyclos.js";
@@ -6,8 +6,8 @@ import { entry } from "../test-support/fake-cyclos.js";
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
 const PDF_PATH = "/releve.pdf";
 
-// Parcourt un exemplaire de chaque type de réponse du serveur.
-// Renvoie [{ label, res, body }] ; `secure` = le cookie de session est Secure.
+// Goes through one sample of each kind of server response.
+// Returns [{ label, res, body }]; `secure` = the session cookie is Secure.
 async function everyResponse(app) {
   const out = [];
   const take = async (label, promise) => {
@@ -110,7 +110,7 @@ appTest("pas de page sans type de contenu précis (texte et HTML en UTF-8)", asy
   }
 });
 
-// ------------------------------------------------------------ taille des corps
+// ------------------------------------------------------------ body size
 
 appTest("corps de plus de 10 ko : 413 sur chaque route qui lit un corps, rien n'est envoyé à Cyclos", async (app) => {
   const csrf = await app.loggedIn();
@@ -137,7 +137,7 @@ appTest("corps de 10 000 octets exactement accepté (refusé pour une autre rais
   const padding = "x".repeat(10_000 - `csrf=${csrf}&p=`.length);
   const res = await app.request("/releve", { method: "POST", body: `csrf=${csrf}&p=${padding}`, headers: { "Content-Type": "application/x-www-form-urlencoded" } });
   assert.equal(`csrf=${csrf}&p=${padding}`.length, 10_000);
-  assert.equal(res.status, 400); // jeton valide, mais dates absentes
+  assert.equal(res.status, 400); // valid token, but dates missing
   const over = await app.request("/releve", { method: "POST", body: `csrf=${csrf}&p=${padding}x`, headers: { "Content-Type": "application/x-www-form-urlencoded" } });
   assert.equal(over.status, 413);
 });
@@ -157,7 +157,7 @@ appTest("corps en morceaux (chunked) sans Content-Length qui dépasse 10 ko : 41
   assert.equal(res.headers.connection, "close");
   assert.equal(app.cyclos.calls("GET", "/self/accounts").length, 0);
 
-  // Un corps en morceaux qui reste sous la limite est lu normalement.
+  // A chunked body that stays under the limit is read normally.
   const small = await rawRequest(app.base, {
     method: "POST",
     path: "/releve",
