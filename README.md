@@ -99,39 +99,41 @@ externe, aucun vrai identifiant (les identifiants des tests sont fictifs).
 
 ## Comprendre les tests
 
-Les fichiers de `test/` et `test-support/` sont commentés en français pour être relus : chaque fichier commence
-par un bloc qui dit ce qu'il vérifie, et chaque test est précédé de son intention.
-Commencez par **`test/statique.test.js`** : son premier test est expliqué pas à pas et les notions de base
-(`node:test`, `assert`, `async`/`await`, en-têtes HTTP, `Buffer`) y sont définies une fois pour toutes.
+*This section is in English, like the comments of the test files. Test titles and the texts shown to the user stay in French.*
 
-| Fichier de test | Ce qu'il couvre |
+The files in `test/` and `test-support/` are commented so that they can be read and learned from: each file starts
+with a block saying what it checks, and each test is preceded by its intention.
+Start with **`test/statique.test.js`**: its first test is explained step by step, and the basic notions
+(`node:test`, `assert`, `async`/`await`, HTTP headers, `Buffer`) are defined there once and for all.
+
+| Test file | What it covers |
 | --- | --- |
-| `test/statique.test.js` | Fichiers statiques (CSS, logo, polices) : type, cache, ETag, aucun accès à d'autres fichiers du serveur |
-| `test/unit.test.js` | Fonctions pures : dates et fuseau horaire, montants, échappement HTML, texte du PDF, contenu du ticket |
-| `test/connexion.test.js` | Connexion, blocage après 5 échecs, sessions, déconnexion, CSRF, refus 403 de Cyclos |
-| `test/securite.test.js` | En-têtes de sécurité, cache, HTML sans style ni script, limite de taille des requêtes |
-| `test/releve.test.js` | Ticket à l'écran et en PDF : pagination, dates, plafond de 2000 lignes, échappement |
-| `test/totaux-calcules.test.js` | Totaux calculés par le code quand Cyclos ne les donne pas, exactitude des centimes |
-| `test/erreurs.test.js` | Messages d'erreur affichés et journal du serveur (sans données sensibles) |
-| `test/canal.test.js` | En-tête `Channel` envoyé à Cyclos (variable `CYCLOS_CHANNEL`) |
-| `test/charte.test.js` | Charte graphique, accessibilité des erreurs, polices et couleurs |
-| `test/demarrage.test.js` | Démarrage réel avec `node server.js`, `PORT` et `CYCLOS_BASE_URL` |
+| `test/statique.test.js` | Static files (CSS, logo, fonts): type, cache, ETag, no access to other files of the server |
+| `test/unit.test.js` | Pure functions: dates and time zone, amounts, HTML escaping, PDF text, ticket content |
+| `test/connexion.test.js` | Login, blocking after 5 failures, sessions, logout, CSRF, Cyclos 403 refusals |
+| `test/securite.test.js` | Security headers, cache, HTML without style or script, request size limit |
+| `test/releve.test.js` | Ticket on screen and as PDF: pagination, dates, 2000-line cap, escaping |
+| `test/totaux-calcules.test.js` | Totals computed by the code when Cyclos does not give them, exact cents |
+| `test/erreurs.test.js` | Error messages shown and the server log (no sensitive data) |
+| `test/canal.test.js` | `Channel` header sent to Cyclos (`CYCLOS_CHANNEL` variable) |
+| `test/charte.test.js` | Graphic charter, accessibility of errors, fonts and colours |
+| `test/demarrage.test.js` | Real startup with `node server.js`, `PORT` and `CYCLOS_BASE_URL` |
 
-Le dossier `test-support/` contient les outils des tests : `fake-cyclos.js` (faux Cyclos local),
-`harness.js` (démarre serveur et faux Cyclos, petit « navigateur ») et `pdf-text.js` (lecture du texte d'un PDF).
+The `test-support/` folder holds the tools of the tests: `fake-cyclos.js` (local fake Cyclos),
+`harness.js` (starts the server and the fake Cyclos, small "browser") and `pdf-text.js` (reads the text of a PDF).
 
-Lancer un seul fichier :
+Run a single file:
 
 ```sh
 node --test test/unit.test.js
 ```
 
-Conseils pour lire un test :
+Tips for reading a test:
 
-1. Lisez d'abord le titre et le commentaire d'intention : « qu'est-ce qui irait mal si ce test échouait ? ».
-2. Repérez les trois temps : préparer (état du faux Cyclos, connexion), agir (une requête), vérifier (les `assert`).
-3. Le dernier argument d'un `assert` est le message affiché en cas d'échec : il dit quel cas pose problème.
-4. Pour comprendre une situation, ouvrez `test-support/fake-cyclos.js` : on y voit exactement ce que « Cyclos » répond.
+1. Read the title and the intention comment first: "what would go wrong if this test failed?".
+2. Spot the three steps: arrange (state of the fake Cyclos, login), act (one request), check (the `assert` calls).
+3. The last argument of an `assert` is the message shown on failure: it tells which case is the problem.
+4. To understand a situation, open `test-support/fake-cyclos.js`: it shows exactly what "Cyclos" answers.
 
 ## Sécurité en bref
 

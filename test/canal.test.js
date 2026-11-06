@@ -1,8 +1,8 @@
-// === CE QUE VÉRIFIE CE FICHIER ===
-// Le « canal » Cyclos. Cyclos peut accorder des droits différents selon le canal par lequel on se connecte ; un compte professionnel, par exemple,
-// peut n'avoir accès à ses comptes que par le canal « main ». La variable CYCLOS_CHANNEL fait envoyer l'en-tête HTTP `Channel` à Cyclos. On
-// vérifie qu'il est envoyé sur TOUS les appels quand il est défini, absent sinon, et qu'une valeur douteuse est refusée au démarrage (pour ne
-// jamais envoyer un en-tête bizarre à Cyclos). Utilise le harnais et le faux Cyclos. Notions de base : test/statique.test.js.
+// === WHAT THIS FILE CHECKS ===
+// The Cyclos "channel". Cyclos can grant different rights depending on the channel used to log in; a business account, for example,
+// may only have access to its accounts through the "main" channel. The CYCLOS_CHANNEL variable makes the `Channel` HTTP header be sent to Cyclos. We
+// check that it is sent on ALL calls when defined, absent otherwise, and that a dubious value is refused at startup (so as to never
+// send an odd header to Cyclos). Uses the harness and the fake Cyclos. Basic notions: test/statique.test.js.
 // Channel header sent to Cyclos (CYCLOS_CHANNEL variable), with the fake Cyclos.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -11,11 +11,11 @@ import { appTest, until } from "../test-support/harness.js";
 import { startServer } from "../server.js";
 import { entry } from "../test-support/fake-cyclos.js";
 
-// Une période fixe utilisée par les tests : toute la journée du 10 janvier 2026.
+// A fixed period used by the tests: the whole day of 10 January 2026.
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
 
 // Login, statement (history + totals), then logout (DELETE of the token).
-// Joue un parcours complet (connexion, relevé, déconnexion) et renvoie la liste de TOUS les appels reçus par le faux Cyclos.
+// Plays a complete journey (login, statement, logout) and returns the list of ALL calls received by the fake Cyclos.
 async function fullCycle(app) {
   app.cyclos.state.entries = [entry(1, { amount: "3.00" })];
   const csrf = await app.loggedIn();
@@ -26,11 +26,11 @@ async function fullCycle(app) {
   return app.cyclos.state.requests;
 }
 
-// Aide : filtre les appels reçus par méthode et chemin.
+// Helper: filters the calls received by method and path.
 const seen = (requests, method, path) => requests.filter((r) => r.method === method && r.path === path);
 
-// Intention : avec un canal défini, TOUS les appels vers Cyclos (connexion, totaux, historique, déconnexion) portent l'en-tête `Channel: main`.
-// Si un seul l'oubliait, Cyclos pourrait répondre 403 sur cet appel-là.
+// Intention: with a channel defined, ALL calls to Cyclos (login, totals, history, logout) carry the `Channel: main` header.
+// If a single one forgot it, Cyclos might answer 403 on that very call.
 appTest("CYCLOS_CHANNEL défini : Channel envoyé sur login, historique, totaux et logout", { cyclosChannel: "main" }, async (app) => {
   const requests = await fullCycle(app);
   assert.equal(seen(requests, "POST", "/auth/session").length, 1);
@@ -43,7 +43,7 @@ appTest("CYCLOS_CHANNEL défini : Channel envoyé sur login, historique, totaux 
   }
 });
 
-// Intention : sans la variable, aucun en-tête `Channel` n'est envoyé (comportement par défaut de Cyclos).
+// Intention: without the variable, no `Channel` header is sent (Cyclos' default behaviour).
 appTest("CYCLOS_CHANNEL absent : aucun en-tête Channel", async (app) => {
   const requests = await fullCycle(app);
   assert.ok(requests.length >= 6);
@@ -52,27 +52,27 @@ appTest("CYCLOS_CHANNEL absent : aucun en-tête Channel", async (app) => {
   }
 });
 
-// Idem avec une valeur vide : c'est « pas de canal ».
+// Same with an empty value: it means "no channel".
 appTest("CYCLOS_CHANNEL vide : aucun en-tête Channel", { cyclosChannel: "" }, async (app) => {
   for (const r of await fullCycle(app)) assert.equal("channel" in r.headers, false);
 });
 
-// Intention (sécurité) : un nom de canal avec espace, retour à la ligne (tentative d'injecter un autre en-tête), accent, « / » ou plus de 32 caractères
-// empêche le démarrage. `assert.rejects` vérifie que la promesse échoue avec le bon message. Ici `test` simple (pas de harnais) : on appelle `startServer` directement.
+// Intention (security): a channel name with a space, a line break (an attempt to inject another header), an accent, a "/" or more than 32 characters
+// prevents startup. `assert.rejects` checks that the promise fails with the right message. Here a plain `test` (no harness): we call `startServer` directly.
 test("CYCLOS_CHANNEL invalide : startServer refuse de démarrer", async () => {
   for (const bad of ["main interface", "main\r\nX-Evil: 1", "café", "a/b", " main", "x".repeat(33)]) {
     await assert.rejects(startServer({ port: 0, host: "127.0.0.1", cyclosChannel: bad }), /CYCLOS_CHANNEL invalide/, JSON.stringify(bad));
   }
 });
 
-// Cas limite : exactement 32 caractères, avec tiret et soulignement, est accepté.
+// Edge case: exactly 32 characters, with a hyphen and an underscore, is accepted.
 test("CYCLOS_CHANNEL à la limite (32 caractères, tiret, soulignement) : accepté", async () => {
   const server = await startServer({ port: 0, host: "127.0.0.1", cyclosChannel: `Ab_-${"9".repeat(28)}` });
   await server.close();
 });
 
-// Intention : lancé en vrai (`node server.js`), un canal invalide donne un message d'une ligne, sans pile d'appels illisible, un code de sortie 1
-// (échec) et rien n'écoute. `spawn` lance un vrai processus Node, comme le ferait l'opérateur dans son terminal.
+// Intention: launched for real (`node server.js`), an invalid channel gives a one-line message, with no unreadable call stack, an exit code of 1
+// (failure) and nothing listening. `spawn` starts a real Node process, as the operator would in their terminal.
 test("node server.js avec un canal invalide : message clair, pas de pile, code 1, rien n'écoute", async () => {
   const child = spawn(process.execPath, ["server.js"], {
     cwd: new URL("../", import.meta.url),
@@ -89,7 +89,7 @@ test("node server.js avec un canal invalide : message clair, pas de pile, code 1
   assert.ok(!/\n\s+at /.test(output), "pas de pile d'appels");
 });
 
-// Intention : au démarrage, le journal annonce le canal utilisé, pour que l'opérateur voie tout de suite s'il est bien configuré.
+// Intention: at startup, the log announces the channel in use, so that the operator immediately sees whether it is configured correctly.
 test("node server.js avec CYCLOS_CHANNEL=main : le journal annonce le canal", async () => {
   const child = spawn(process.execPath, ["server.js"], {
     cwd: new URL("../", import.meta.url),

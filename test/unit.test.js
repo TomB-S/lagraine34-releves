@@ -1,10 +1,10 @@
-// === CE QUE VÉRIFIE CE FICHIER ===
-// Les tests UNITAIRES : on appelle directement de petites fonctions de server.js et ticket-pdf.js, sans serveur,
-// sans réseau, sans faux Cyclos (c'est pourquoi il n'utilise pas le harnais). Elles sont « pures » : même entrée,
-// même sortie. Ce sont celles qui décident des dates saisies, de l'affichage des montants, de l'échappement du HTML
-// et du texte du ticket. Pour un commerçant : un ticket juste (bonne période, bons montants). Pour la sécurité :
-// aucun texte venu d'ailleurs ne peut injecter de code dans la page. Notions de base (test, assert, async) :
-// voir test/statique.test.js.
+// === WHAT THIS FILE CHECKS ===
+// UNIT tests: we directly call small functions of server.js and ticket-pdf.js, without a server,
+// without a network, without the fake Cyclos (which is why it does not use the harness). They are "pure": same input,
+// same output. These are the ones that decide on the dates typed, the display of amounts, the escaping of HTML
+// and the text of the ticket. For a merchant: a correct ticket (right period, right amounts). For security:
+// no text coming from elsewhere can inject code into the page. Basic notions (test, assert, async):
+// see test/statique.test.js.
 // Unit tests of the pure functions (no server, no network).
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,18 +19,18 @@ import {
 } from "../server.js";
 import { pdfText } from "../ticket-pdf.js";
 
-// Fuseau horaire : « 10h » ne veut rien dire sans préciser OÙ. Les commerçants sont en France : tout est calculé à l'heure de
-// Paris (Europe/Paris), qui change deux fois par an (heure d'été en mars, heure d'hiver en octobre).
+// Time zone: "10 am" means nothing without saying WHERE. The merchants are in France: everything is computed in
+// Paris time (Europe/Paris), which changes twice a year (summer time in March, winter time in October).
 const ZONE = "Europe/Paris";
-// Petit raccourci pour fabriquer une date à l'heure de Paris (la bibliothèque Luxon fournit le type DateTime).
+// Small shortcut to build a date in Paris time (the Luxon library provides the DateTime type).
 const at = (iso) => DateTime.fromISO(iso, { zone: ZONE });
-// Une « fausse heure actuelle » fixe, passée aux fonctions : le résultat des tests ne dépend ainsi pas du jour où on les lance.
+// A fixed "fake current time", passed to the functions: the test results thus do not depend on the day they are run.
 const NOW = at("2026-11-05T12:00:30"); // Thursday, winter time
 
 // ---------------------------------------------------------------- dates
 
-// Intention : une plage normale est acceptée, et la fin inclut la DERNIÈRE minute (11:59 va jusqu'à 11:59:59.999).
-// Sinon une vente à 11:59:30 disparaîtrait du ticket. `parseRange` lit les deux dates saisies dans le formulaire.
+// Intention: a normal range is accepted, and the end includes the LAST minute (11:59 goes up to 11:59:59.999).
+// Otherwise a sale at 11:59:30 would vanish from the ticket. `parseRange` reads the two dates typed in the form.
 test("parseRange : plage valide, la dernière minute est incluse", () => {
   const r = parseRange("2026-11-05T08:00", "2026-11-05T11:59", NOW);
   assert.equal(r.error, undefined);
@@ -40,8 +40,8 @@ test("parseRange : plage valide, la dernière minute est incluse", () => {
   assert.equal(r.until.toFormat("HH:mm:ss.SSS"), "11:59:59.999");
 });
 
-// Intention : une date mal écrite (vide, avec secondes, au mauvais format...) est refusée avec un message clair
-// pour le commerçant, au lieu de provoquer une erreur plus loin.
+// Intention: a badly written date (empty, with seconds, in the wrong format...) is refused with a clear message
+// for the merchant, instead of causing an error further on.
 test("parseRange : format invalide", () => {
   for (const bad of ["", undefined, null, "2026-11-05 08:00", "05/11/2026 08:00", "2026-11-05T08:00:30", "2026-11-5T8:00", "abc"]) {
     assert.match(parseRange(bad, "2026-11-05T09:00", NOW).error, /Date de début invalide.*format attendu/, String(bad));
@@ -49,20 +49,20 @@ test("parseRange : format invalide", () => {
   }
 });
 
-// Intention : le 30 février ou le mois 13 n'existent pas ; on le dit au lieu de les corriger silencieusement.
+// Intention: 30 February or month 13 do not exist; we say so instead of silently correcting them.
 test("parseRange : date absente du calendrier", () => {
   assert.match(parseRange("2026-02-30T10:00", "2026-03-01T10:00", NOW).error, /début n'existe pas dans le calendrier/);
   assert.match(parseRange("2026-11-01T10:00", "2026-13-01T10:00", NOW).error, /fin n'existe pas dans le calendrier/);
 });
 
-// Intention : une période à l'envers (ou vide) est refusée, sinon on demanderait à Cyclos une période absurde.
+// Intention: a backwards (or empty) period is refused, otherwise we would ask Cyclos for an absurd period.
 test("parseRange : fin avant le début, ou égale au début", () => {
   assert.equal(parseRange("2026-11-05T10:00", "2026-11-05T09:00", NOW).error, "La fin doit être après le début.");
   assert.equal(parseRange("2026-11-05T10:00", "2026-11-05T10:00", NOW).error, "La fin doit être après le début.");
 });
 
-// Intention : la plage est limitée à 31 jours (pile 31 est accepté, une minute de plus est refusée),
-// pour ne pas demander des milliers de transactions à Cyclos.
+// Intention: the range is limited to 31 days (exactly 31 is accepted, one more minute is refused),
+// so as not to ask Cyclos for thousands of transactions.
 test("parseRange : 31 jours au plus", () => {
   const ok = parseRange("2026-10-05T00:00", "2026-11-05T00:00", NOW);
   assert.equal(ok.error, undefined);
@@ -70,14 +70,14 @@ test("parseRange : 31 jours au plus", () => {
   assert.match(parseRange("2026-01-01T00:00", "2026-11-05T00:00", NOW).error, /ne peut pas dépasser 31 jours/);
 });
 
-// Intention : il n'y a rien à relever dans le futur ; un début futur est une erreur de saisie.
+// Intention: there is nothing to report in the future; a future start is a typing mistake.
 test("parseRange : début dans le futur refusé", () => {
   assert.equal(parseRange("2026-11-05T12:01", "2026-11-05T13:00", NOW).error, "Le début ne peut pas être dans le futur.");
   assert.equal(parseRange("2027-01-01T00:00", "2027-01-02T00:00", NOW).error, "Le début ne peut pas être dans le futur.");
 });
 
-// Intention : une fin future est tolérée mais ramenée à « maintenant » (`clamped`), puisque rien n'existe après.
-// Ainsi « jusqu'à ce soir » fonctionne en milieu d'après-midi.
+// Intention: a future end is tolerated but brought back to "now" (`clamped`), since nothing exists afterwards.
+// This way "until tonight" works in the middle of the afternoon.
 test("parseRange : fin dans le futur ramenée à maintenant", () => {
   const r = parseRange("2026-11-05T10:00", "2026-11-06T10:00", NOW);
   assert.equal(r.error, undefined);
@@ -86,16 +86,16 @@ test("parseRange : fin dans le futur ramenée à maintenant", () => {
   assert.equal(r.until.toMillis(), NOW.toMillis());
 });
 
-// Cas limite : début = maintenant et fin future. Après ramenée de la fin à maintenant, la fin n'est pas après le début :
-// on doit répondre par l'erreur normale, pas planter.
+// Edge case: start = now and a future end. Once the end is brought back to now, the end is not after the start:
+// we must answer with the normal error, not crash.
 test("parseRange : début à la seconde même de maintenant et fin future -> fin avant le début", () => {
   const now = at("2026-11-05T12:00:00");
   assert.equal(parseRange("2026-11-05T12:00", "2026-11-05T13:00", now).error, "La fin doit être après le début.");
 });
 
-// Intention : au passage à l'heure d'été (29 mars 2026), il n'y a pas d'heure 02:30 : on passe de 02:00 à 03:00.
-// Luxon la décalerait en silence à 03:30 ; on veut au contraire prévenir le commerçant, sinon son ticket couvrirait
-// une autre période que celle qu'il croit.
+// Intention: at the switch to summer time (29 March 2026), there is no 02:30: we go from 02:00 to 03:00.
+// Luxon would silently shift it to 03:30; we want instead to warn the merchant, otherwise the ticket would cover
+// a different period from the one they think.
 test("parseRange : heure inexistante au passage à l'heure d'été (29 mars 2026, 02:30)", () => {
   const now = at("2026-04-01T12:00");
   const start = parseRange("2026-03-29T02:30", "2026-03-29T10:00", now);
@@ -106,8 +106,8 @@ test("parseRange : heure inexistante au passage à l'heure d'été (29 mars 2026
   assert.equal(parseRange("2026-03-29T01:59", "2026-03-29T03:00", now).error, undefined);
 });
 
-// Cas connu et ACCEPTÉ : le 25 octobre 2026, 02:30 existe deux fois (été puis hiver). L'outil retient la seconde, sans prévenir.
-// Ce test fige ce comportement (il est listé dans « Limites connues » du README) ; s'il change, c'est un choix à refaire.
+// Known and ACCEPTED case: on 25 October 2026, 02:30 exists twice (summer then winter). The tool keeps the second, without warning.
+// This test freezes that behaviour (it is listed in "Limites connues" of the README); if it changes, it is a choice to make again.
 test("parseRange : heure ambiguë (25 octobre 2026, 02:30) acceptée, seconde occurrence (heure d'hiver) retenue", () => {
   const now = at("2026-11-01T12:00");
   const r = parseRange("2026-10-25T02:30", "2026-10-25T10:00", now);
@@ -118,8 +118,8 @@ test("parseRange : heure ambiguë (25 octobre 2026, 02:30) acceptée, seconde oc
   assert.equal(r.from.toUTC().toISO(), "2026-10-25T01:30:00.000Z");
 });
 
-// Intention : les raccourcis de la page des filtres (aujourd'hui, hier, 6 heures) donnent les bonnes bornes, et un
-// raccourci inconnu retombe sur « aujourd'hui » au lieu de provoquer une erreur.
+// Intention: the shortcuts of the filters page (today, yesterday, 6 hours) give the right bounds, and an unknown
+// shortcut falls back to "today" instead of causing an error.
 test("presetRange : aujourd'hui, hier, 6 heures, préréglage inconnu", () => {
   const now = at("2026-11-05T12:34:56");
   const fmt = ({ start, end }) => [start.toFormat("yyyy-MM-dd HH:mm"), end.toFormat("yyyy-MM-dd HH:mm")];
@@ -132,9 +132,9 @@ test("presetRange : aujourd'hui, hier, 6 heures, préréglage inconnu", () => {
 
 // ---------------------------------------------------------------- HTML
 
-// Intention (sécurité) : les textes venus de Cyclos (noms, descriptions) sont insérés dans une page. S'ils contenaient
-// <script>, un pirate pourrait faire exécuter du code chez le commerçant (faille XSS). `escapeHtml` remplace < > & " par des
-// entités (&lt; ...) pour que le navigateur les AFFICHE au lieu de les interpréter. Le test vérifie aussi qu'on n'échappe pas deux fois.
+// Intention (security): texts coming from Cyclos (names, descriptions) are inserted into a page. If they contained
+// <script>, an attacker could have code run on the merchant's side (XSS flaw). `escapeHtml` replaces < > & " with
+// entities (&lt; ...) so that the browser DISPLAYS them instead of interpreting them. The test also checks that we do not escape twice.
 test("escapeHtml : & < > \" échappés, & une seule fois", () => {
   assert.equal(escapeHtml(`<script>alert("x")</script>`), "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
   assert.equal(escapeHtml("Tom & Jerry"), "Tom &amp; Jerry");
@@ -146,8 +146,8 @@ test("escapeHtml : & < > \" échappés, & une seule fois", () => {
 
 // ---------------------------------------------------------------- amounts
 
-// Intention : les montants s'affichent à la française (virgule décimale, espace fine insécable entre les milliers :
-// \u202f est le code de cette espace). Un montant mal formaté sur un ticket prête à confusion.
+// Intention: amounts display the French way (decimal comma, narrow no-break space between thousands:
+// \u202f is the code of that space). A badly formatted amount on a ticket causes confusion.
 test("formatAmount : format français, espace fine insécable entre les milliers", () => {
   assert.equal(formatAmount("1234.5"), "1\u202f234,50");
   assert.equal(formatAmount("1234567.89"), "1\u202f234\u202f567,89");
@@ -157,7 +157,7 @@ test("formatAmount : format français, espace fine insécable entre les milliers
   assert.equal(formatAmount("1000"), "1\u202f000,00");
 });
 
-// Intention : le « + » n'est ajouté qu'aux montants positifs quand on le demande, et zéro n'a jamais de signe (pas de « -0,00 »).
+// Intention: the "+" is only added to positive amounts when requested, and zero never has a sign (no "-0,00").
 test("formatAmount : signes", () => {
   assert.equal(formatAmount("-12.3"), "-12,30");
   assert.equal(formatAmount("12.3", 2, { signed: true }), "+12,30");
@@ -167,8 +167,8 @@ test("formatAmount : signes", () => {
   assert.equal(formatAmount("-0.00", 2, { signed: true }), "0,00");
 });
 
-// Intention : certaines monnaies n'ont pas de centimes (0 décimale) ; et une valeur illisible est rendue telle quelle
-// plutôt que transformée en un faux chiffre.
+// Intention: some currencies have no cents (0 decimals); and an unreadable value is returned as is
+// rather than turned into a false figure.
 test("formatAmount : nombre de décimales de la monnaie, valeur illisible rendue telle quelle", () => {
   assert.equal(formatAmount("1500", 0), "1\u202f500");
   assert.equal(formatAmount("1.5", 3), "1,500");
@@ -179,22 +179,22 @@ test("formatAmount : nombre de décimales de la monnaie, valeur illisible rendue
 
 // ---------------------------------------------------------------- PDF
 
-// Intention : le PDF utilise une police standard qui ne connaît que le jeu « Windows-1252 » (lettres latines accentuées, €, guillemets...).
-// Ces caractères doivent passer intacts. Les suivants vérifient ce qui arrive aux autres.
+// Intention: the PDF uses a standard font that only knows the "Windows-1252" set (accented Latin letters, €, quotation marks...).
+// These characters must go through intact. The following tests check what happens to the others.
 test("pdfText : caractères de Windows-1252 conservés", () => {
   assert.equal(pdfText("Café Crème – « œuvre » 5 € ©"), "Café Crème – « œuvre » 5 € ©");
 });
 
-// Intention : les espaces spéciaux (fine, insécable) et les caractères de contrôle (retour à la ligne, tabulation) n'ont pas de
-// forme dans la police du PDF ; ils sont remplacés par une espace simple, pour ne pas casser la mise en page.
+// Intention: special spaces (narrow, no-break) and control characters (line break, tab) have no
+// shape in the PDF font; they are replaced by a plain space, so as not to break the layout.
 test("pdfText : espaces spéciaux, retours à la ligne et contrôles deviennent des espaces", () => {
   assert.equal(pdfText("1\u202f234,50"), "1 234,50");
   assert.equal(pdfText("a\u00a0b"), "a b");
   assert.equal(pdfText("a\nb\tc\rd\u0000e\u007ff"), "a b c d e f");
 });
 
-// Intention : un caractère que la police ne sait pas dessiner (cyrillique, japonais, emoji) devient UN « ? » — un seul même
-// pour un emoji, qui compte deux unités en JavaScript. Limite connue du PDF (voir README).
+// Intention: a character the font cannot draw (Cyrillic, Japanese, emoji) becomes ONE "?", only one even
+// for an emoji, which counts as two units in JavaScript. Known limit of the PDF (see README).
 test("pdfText : hors Windows-1252 -> un seul « ? » par caractère, emoji compris", () => {
   assert.equal(pdfText("Привет"), "??????");
   assert.equal(pdfText("日本"), "??");
@@ -203,15 +203,15 @@ test("pdfText : hors Windows-1252 -> un seul « ? » par caractère, emoji compr
   assert.equal(pdfText("→"), "?");
 });
 
-// Intention : une donnée manquante venue de Cyclos ne fait pas planter la fabrication du PDF.
+// Intention: a missing piece of data from Cyclos does not crash the building of the PDF.
 test("pdfText : null, undefined, nombres", () => {
   assert.equal(pdfText(null), "");
   assert.equal(pdfText(undefined), "");
   assert.equal(pdfText(12.5), "12.5");
 });
 
-// Intention (sécurité) : le nom du fichier téléchargé est construit uniquement avec des chiffres, des tirets et _. Même si la langue
-// du système est l'arabe (chiffres arabes), le nom reste fait de chiffres 0-9 : aucun caractère étrange dans l'en-tête HTTP.
+// Intention (security): the name of the downloaded file is built only with digits, hyphens and _. Even if the system language
+// is Arabic (Arabic digits), the name stays made of digits 0-9: no strange character in the HTTP header.
 test("pdfFilename : chiffres, tirets et _ seulement, même avec une langue par défaut non latine", () => {
   const from = at("2026-11-05T03:57");
   const to = at("2026-11-05T23:59");
@@ -223,11 +223,11 @@ test("pdfFilename : chiffres, tirets et _ seulement, même avec une langue par d
 
 // ---------------------------------------------------------------- summary
 
-// Aide pour les tests suivants : fabrique la partie « totaux » telle que Cyclos la renvoie (reçus, sortis, et parfois le solde net).
+// Helper for the following tests: builds the "totals" part as Cyclos returns it (received, sent, and sometimes the net balance).
 const totals = (incoming, outgoing, netInflow) => ({
   status: { incoming, outgoing, ...(netInflow === undefined ? {} : { netInflow }) },
 });
-// Un relevé de base (période, aucune ligne, monnaie « Graines »), que chaque test complète avec ses propres totaux.
+// A base statement (period, no lines, currency "Graines"), which each test completes with its own totals.
 const baseStatement = {
   from: at("2026-01-10T08:00"),
   to: at("2026-01-10T18:00"),
@@ -237,8 +237,8 @@ const baseStatement = {
   currency: { name: "Graines", decimalDigits: 2 },
 };
 
-// Intention : `ticketModel` prépare le contenu du ticket (titre, période, résumé, lignes) ; l'écran ET le PDF l'utilisent,
-// donc ils affichent toujours la même chose. Ici, avec les totaux de Cyclos, on vérifie libellés, montants, période et absence d'avertissement.
+// Intention: `ticketModel` prepares the content of the ticket (title, period, summary, lines); the screen AND the PDF use it,
+// so they always show the same thing. Here, with Cyclos' totals, we check labels, amounts, period and the absence of a warning.
 test("ticketModel : résumé avec solde net fourni par Cyclos", () => {
   const m = ticketModel({ ...baseStatement, totals: totals({ count: 3, sum: "1234.50" }, { count: 1, sum: "4.50" }, "1230.00") });
   assert.deepEqual(m.summary, [
@@ -255,8 +255,8 @@ test("ticketModel : résumé avec solde net fourni par Cyclos", () => {
   assert.equal(m.warning, "");
 });
 
-// Intention : si Cyclos ne donne pas le solde net, on le calcule (reçus - sortis), négatif ou nul compris, sans erreur d'arrondi
-// (0,30 - 0,10 doit faire 0,20 exactement ; les nombres à virgule de JavaScript donneraient 0.19999...).
+// Intention: if Cyclos does not give the net balance, we compute it (received - sent), negative or zero included, without rounding error
+// (0.30 - 0.10 must give exactly 0.20; JavaScript's floating-point numbers would give 0.19999...).
 test("ticketModel : solde net calculé quand Cyclos ne le donne pas, négatif, nul", () => {
   const negative = ticketModel({ ...baseStatement, totals: totals({ count: 1, sum: "5.00" }, { count: 2, sum: "12.25" }) });
   assert.equal(negative.summary[2].value, "-7,25");
@@ -268,7 +268,7 @@ test("ticketModel : solde net calculé quand Cyclos ne le donne pas, négatif, n
   assert.equal(floats.summary[2].value, "+0,20");
 });
 
-// Intention : si la monnaie ou le nom du commerçant manquent, le ticket se fabrique quand même (2 décimales par défaut).
+// Intention: if the currency or the merchant's name is missing, the ticket is still built (2 decimals by default).
 test("ticketModel : monnaie absente -> 2 décimales, nom d'unité vide ; nom du commerçant absent", () => {
   const m = ticketModel({ ...baseStatement, currency: undefined, merchantName: null, totals: totals({ count: 1, sum: "2" }, { count: 0, sum: "0" }) });
   assert.equal(m.unit, "Montants en ");
@@ -276,8 +276,8 @@ test("ticketModel : monnaie absente -> 2 décimales, nom d'unité vide ; nom du 
   assert.equal(m.merchantName, null);
 });
 
-// Intention : les lignes sont triées du plus ancien au plus récent (Cyclos les donne à l'envers), les heures sont celles de Paris
-// (été et hiver), et une contrepartie absente donne un texte vide. Sinon le ticket serait difficile à lire.
+// Intention: lines are sorted from oldest to most recent (Cyclos gives them in reverse), times are Paris time
+// (summer and winter), and a missing counterparty gives an empty text. Otherwise the ticket would be hard to read.
 test("ticketModel : lignes du plus ancien au plus récent, heure de Paris, contrepartie", () => {
   const entries = [
     { date: "2026-07-10T08:30:00.000Z", amount: "-3.00", transactionNumber: "C", description: "Remboursement", relatedAccount: { type: { name: "Compte système" } } },
@@ -292,7 +292,7 @@ test("ticketModel : lignes du plus ancien au plus récent, heure de Paris, contr
   assert.deepEqual(m.rows.map((r) => r.description), ["Pain", "", "Remboursement"]);
 });
 
-// Intention : si la liste est coupée (trop de transactions), le ticket doit le dire explicitement.
+// Intention: if the list is cut (too many transactions), the ticket must say so explicitly.
 test("ticketModel : avertissement quand la liste est tronquée", () => {
   const m = ticketModel({ ...baseStatement, truncated: true, totals: totals({ count: 0, sum: "0" }, { count: 0, sum: "0" }) });
   assert.match(m.warning, /limitée aux 2000 transactions les plus récentes/);

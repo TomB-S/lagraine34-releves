@@ -1,22 +1,22 @@
-// === CE QUE VÉRIFIE CE FICHIER ===
-// Les protections « de fond » du serveur : les en-têtes HTTP de sécurité envoyés sur CHAQUE réponse, le cache, l'absence de style ou de
-// script dans le HTML, et la limite de taille des requêtes (10 ko). Pour le commerçant : un ticket qui ne reste pas dans le cache du
-// navigateur, des pages qui ne peuvent pas être détournées. Utilise le harnais (test-support/harness.js) et le faux Cyclos.
-// Notions de base (assert, async, statuts HTTP) : voir test/statique.test.js.
+// === WHAT THIS FILE CHECKS ===
+// The "background" protections of the server: the security HTTP headers sent on EVERY response, caching, the absence of style or
+// script in the HTML, and the size limit of requests (10 kB). For the merchant: a ticket that does not stay in the browser's cache,
+// pages that cannot be hijacked. Uses the harness (test-support/harness.js) and the fake Cyclos.
+// Basic notions (assert, async, HTTP statuses): see test/statique.test.js.
 // Security headers, cache, body size limit, HTML without style/script.
 import assert from "node:assert/strict";
 import { appTest, rawRequest, EXPECTED_CSP } from "../test-support/harness.js";
 import { entry } from "../test-support/fake-cyclos.js";
 
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
-// Adresse du téléchargement PDF, réutilisée dans le parcours de `everyResponse`.
+// Address of the PDF download, reused in the walk-through of `everyResponse`.
 const PDF_PATH = "/releve.pdf";
 
 // Goes through one sample of each kind of server response.
 // Returns [{ label, res, body }]; `secure` = the session cookie is Secure.
-// Fonction d'aide : provoque UN exemple de chaque sorte de réponse du serveur (pages, redirections, erreurs 400/403/404/405/413/502,
-// fichiers statiques, PDF...) et les rend toutes ensemble. Les tests ci-dessous parcourent cette liste pour vérifier qu'AUCUNE réponse
-// n'échappe à la règle testée. Sans cela, on oublierait facilement un type de réponse (par exemple les pages d'erreur).
+// Helper: triggers ONE example of each kind of server response (pages, redirections, errors 400/403/404/405/413/502,
+// static files, PDF...) and returns them all together. The tests below go through this list to check that NO response
+// escapes the rule being tested. Without it, a type of response (for example the error pages) would easily be forgotten.
 async function everyResponse(app) {
   const out = [];
   const take = async (label, promise) => {
@@ -55,13 +55,13 @@ async function everyResponse(app) {
   return out;
 }
 
-// Intention : chaque réponse porte les en-têtes de sécurité. Si l'un manquait, une protection du navigateur serait désactivée :
-//  - Content-Security-Policy (CSP) : liste ce que la page a le droit de charger ; ici seulement des fichiers de notre site, aucun script.
-//    Même si un pirate parvenait à glisser du code dans une page, le navigateur refuserait de l'exécuter ou de contacter un autre site.
-//  - X-Content-Type-Options: nosniff : le navigateur doit croire le type annoncé (il ne « devine » pas qu'un texte est un script).
-//  - X-Frame-Options: DENY : nos pages ne peuvent pas être affichées dans un cadre d'un autre site (technique du « clickjacking »).
-//  - Referrer-Policy : limite l'adresse d'origine communiquée aux autres sites (la page de connexion en a besoin, voir server.js).
-//  - Strict-Transport-Security (HSTS) : impose HTTPS ; absent ici car il n'est activé qu'avec COOKIE_SECURE (tests suivants).
+// Intention: every response carries the security headers. If one were missing, a browser protection would be switched off:
+//  - Content-Security-Policy (CSP): lists what the page may load; here only files from our site, no script.
+//    Even if an attacker managed to slip code into a page, the browser would refuse to run it or to contact another site.
+//  - X-Content-Type-Options: nosniff: the browser must believe the announced type (it does not "guess" that a text is a script).
+//  - X-Frame-Options: DENY: our pages cannot be displayed in a frame of another site (the "clickjacking" technique).
+//  - Referrer-Policy: limits the origin address passed on to other sites (the login page needs it, see server.js).
+//  - Strict-Transport-Security (HSTS): forces HTTPS; absent here because it is only enabled with COOKIE_SECURE (next tests).
 appTest("en-têtes de sécurité sur chaque type de réponse, CSP exacte", async (app) => {
   const responses = await everyResponse(app);
   assert.ok(responses.length >= 22, `${responses.length} réponses`);
@@ -75,8 +75,8 @@ appTest("en-têtes de sécurité sur chaque type de réponse, CSP exacte", async
   assert.ok(!/unsafe-|https?:|script-src/.test(EXPECTED_CSP));
 });
 
-// Intention : les pages (qui contiennent des relevés) ne doivent être gardées ni en cache ni par le bouton « retour » du navigateur :
-// `no-store`. Seuls les fichiers statiques (logo, CSS) sont cachés 1 heure. Sinon un relevé resterait lisible sur un poste partagé.
+// Intention: pages (which contain statements) must be kept neither in cache nor by the browser's "back" button:
+// `no-store`. Only static files (logo, CSS) are cached for 1 hour. Otherwise a statement would stay readable on a shared computer.
 appTest("Cache-Control : no-store partout sauf fichiers statiques (public, 1 h)", async (app) => {
   for (const { label, res } of await everyResponse(app)) {
     const expected = /^GET \/(style\.css|logo\.png|fonts\/\S+\.woff2)( 304)?$/.test(label) && !label.includes("inconnue")
@@ -86,8 +86,8 @@ appTest("Cache-Control : no-store partout sauf fichiers statiques (public, 1 h)"
   }
 });
 
-// Intention : en production (HTTPS), l'option COOKIE_SECURE ajoute HSTS partout et l'attribut `Secure` au cookie de session
-// (le cookie ne voyage alors que sur HTTPS), y compris au moment où il est effacé.
+// Intention: in production (HTTPS), the COOKIE_SECURE option adds HSTS everywhere and the `Secure` attribute to the session cookie
+// (the cookie then only travels over HTTPS), including when it is cleared.
 appTest("COOKIE_SECURE actif : HSTS sur chaque réponse, Secure sur le cookie posé et sur le cookie effacé", { cookieSecure: true }, async (app) => {
   const responses = await everyResponse(app);
   for (const { label, res } of responses) {
@@ -103,14 +103,14 @@ appTest("COOKIE_SECURE actif : HSTS sur chaque réponse, Secure sur le cookie po
   assert.ok(cookies.some((c) => /session=; .*Max-Age=0/.test(c)), "cookie effacé");
 });
 
-// Intention : sans l'option (développement en HTTP local), le cookie n'est pas `Secure`, sinon la connexion ne marcherait pas du tout.
+// Intention: without the option (local HTTP development), the cookie is not `Secure`, otherwise login would not work at all.
 appTest("COOKIE_SECURE inactif : cookie sans Secure", async (app) => {
   const res = await app.login();
   assert.ok(!/Secure/i.test(res.headers.get("set-cookie")));
 });
 
-// Intention : aucune page n'a de style ou de script « en ligne » (attribut style=, balises <style>/<script>, onclick=...) ni de ressource
-// externe. C'est ce qui permet une CSP stricte : tout le style est dans style.css, servi par nous.
+// Intention: no page has "inline" style or script (style= attribute, <style>/<script> tags, onclick=...) or external
+// resource. This is what allows a strict CSP: all the style is in style.css, served by us.
 appTest("aucune réponse HTML ne contient style=, <style ni <script", async (app) => {
   const htmlResponses = (await everyResponse(app)).filter(({ res }) => /^text\/html/.test(res.headers.get("content-type") ?? ""));
   assert.ok(htmlResponses.length >= 8, `${htmlResponses.length} pages HTML`);
@@ -124,7 +124,7 @@ appTest("aucune réponse HTML ne contient style=, <style ni <script", async (app
   }
 });
 
-// Intention : chaque réponse annonce son type, et le texte est déclaré en UTF-8 : sinon les accents des pages françaises s'afficheraient mal.
+// Intention: every response announces its type, and text is declared as UTF-8: otherwise the accents of the French pages would display badly.
 appTest("pas de page sans type de contenu précis (texte et HTML en UTF-8)", async (app) => {
   for (const { label, res } of await everyResponse(app)) {
     const type = res.headers.get("content-type");
@@ -136,8 +136,8 @@ appTest("pas de page sans type de contenu précis (texte et HTML en UTF-8)", asy
 
 // ------------------------------------------------------------ body size
 
-// Intention : une requête dont le corps dépasse 10 ko est refusée (413 « trop volumineux ») sur toutes les routes POST, et rien n'est transmis à
-// Cyclos. Sans cette limite, un envoi énorme pourrait saturer la mémoire du serveur. `Connection: close` ferme la connexion après le refus.
+// Intention: a request whose body exceeds 10 kB is refused (413 "too large") on all POST routes, and nothing is passed on to
+// Cyclos. Without this limit, a huge upload could saturate the server's memory. `Connection: close` closes the connection after the refusal.
 appTest("corps de plus de 10 ko : 413 sur chaque route qui lit un corps, rien n'est envoyé à Cyclos", async (app) => {
   const csrf = await app.loggedIn();
   const calls = app.cyclos.state.requests.length;
@@ -158,8 +158,8 @@ appTest("corps de plus de 10 ko : 413 sur chaque route qui lit un corps, rien n'
   assert.equal(app.cyclos.calls("POST", "/auth/session").length, 1, "seule la connexion initiale");
 });
 
-// Cas limite : 10 000 octets sont acceptés (le refus vient d'une autre cause : dates absentes, 400), 10 001 sont refusés (413).
-// Vérifie que la limite est exactement où on l'annonce.
+// Edge case: 10,000 bytes are accepted (the refusal comes from another cause: missing dates, 400), 10,001 are refused (413).
+// Checks that the limit is exactly where we announce it.
 appTest("corps de 10 000 octets exactement accepté (refusé pour une autre raison que la taille)", async (app) => {
   const csrf = await app.loggedIn();
   const padding = "x".repeat(10_000 - `csrf=${csrf}&p=`.length);
@@ -170,8 +170,8 @@ appTest("corps de 10 000 octets exactement accepté (refusé pour une autre rais
   assert.equal(over.status, 413);
 });
 
-// Intention : un corps peut arriver « en morceaux » (chunked), sans taille annoncée à l'avance. La limite doit aussi s'appliquer en
-// comptant au fur et à mesure. `rawRequest` (harnais) permet d'envoyer ce genre de requête, ce que fetch ne sait pas faire facilement.
+// Intention: a body can arrive "in chunks" (chunked), with no size announced in advance. The limit must also apply by
+// counting as it goes. `rawRequest` (harness) lets us send this kind of request, which fetch cannot easily do.
 appTest("corps en morceaux (chunked) sans Content-Length qui dépasse 10 ko : 413", async (app) => {
   const csrf = await app.loggedIn();
   const headers = { Cookie: app.cookie, "Content-Type": "application/x-www-form-urlencoded", "Transfer-Encoding": "chunked" };
@@ -197,7 +197,7 @@ appTest("corps en morceaux (chunked) sans Content-Length qui dépasse 10 ko : 41
   assert.equal(small.status, 200);
 });
 
-// Intention : même limite sur la connexion en morceaux, et Cyclos n'est jamais contacté.
+// Intention: same limit on the chunked login, and Cyclos is never contacted.
 appTest("corps chunked sur /connexion au-delà de la limite : 413", async (app) => {
   const res = await rawRequest(app.base, {
     method: "POST",
@@ -209,7 +209,7 @@ appTest("corps chunked sur /connexion au-delà de la limite : 413", async (app) 
   assert.equal(app.cyclos.calls("POST", "/auth/session").length, 0);
 });
 
-// Intention : après plusieurs requêtes refusées en 413, le serveur fonctionne toujours (ces requêtes ne le bloquent pas ni ne le font planter).
+// Intention: after several requests refused with 413, the server still works (these requests neither block nor crash it).
 appTest("le serveur reste utilisable après des 413", async (app) => {
   for (let i = 0; i < 3; i += 1) {
     await rawRequest(app.base, {

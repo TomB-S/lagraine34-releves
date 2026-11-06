@@ -1,32 +1,32 @@
-// === CE QUE VÉRIFIE CE FICHIER ===
-// Tout ce qui touche à l'identité du commerçant : connexion, blocage après trop d'échecs, durée des sessions,
-// déconnexion, protection CSRF, refus (403) de Cyclos et pannes. C'est le cœur de la sécurité : un mot de passe
-// qui fuit ou une session qui ne se ferme pas serait grave pour le commerçant. Utilise le harnais
-// (test-support/harness.js : vrai serveur + faux Cyclos, jamais le vrai Cyclos). Notions de base (assert, async,
-// statuts HTTP) : voir test/statique.test.js.
+// === WHAT THIS FILE CHECKS ===
+// Everything that touches the merchant's identity: login, blocking after too many failures, session duration,
+// logout, CSRF protection, Cyclos refusals (403) and outages. This is the core of security: a password
+// that leaks or a session that never closes would be serious for the merchant. Uses the harness
+// (test-support/harness.js: real server + fake Cyclos, never the real Cyclos). Basic notions (assert, async,
+// HTTP statuses): see test/statique.test.js.
 // Login, attempt throttling, sessions, logout, CSRF, 403 refusals.
 // Real server + local fake Cyclos (see test-support/), never the real Cyclos.
-// `mock` (de node:test) sert ici à FAUSSER L'HORLOGE : on peut « avancer le temps » de 20 minutes en une milliseconde
-// pour tester l'expiration des sessions sans attendre.
+// `mock` (from node:test) is used here to FAKE THE CLOCK: we can "advance time" by 20 minutes in one millisecond
+// to test session expiry without waiting.
 import { mock } from "node:test";
 import assert from "node:assert/strict";
 import { appTest, until, USER } from "../test-support/harness.js";
 import { entry } from "../test-support/fake-cyclos.js";
 
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
-// Une minute en millisecondes (les durées de JavaScript sont en ms).
+// One minute in milliseconds (JavaScript durations are in ms).
 const MINUTE = 60_000;
 
 // ------------------------------------------------------------ login
 
-// Intention : après une bonne connexion on est redirigé (303) vers /filtres avec un cookie de session, et le mot de passe
-// n'est envoyé à Cyclos qu'UNE fois. Si ça cassait : mot de passe réutilisé ou exposé, ou jeton Cyclos visible dans la page.
+// Intention: after a successful login we are redirected (303) to /filtres with a session cookie, and the password
+// is sent to Cyclos only ONCE. If this broke: password reused or exposed, or the Cyclos token visible in the page.
 //
-// Cookie de session : un petit texte que le serveur demande au navigateur de renvoyer à chaque requête, pour le reconnaître.
-// Ses options : HttpOnly (illisible par du JavaScript, donc non volable par une faille XSS), SameSite=Lax (pas envoyé depuis
-// un autre site), Max-Age=28800 (8 heures). Le cookie ne contient qu'un identifiant au hasard, SANS lien avec le jeton Cyclos.
-// Authentification Basic : l'en-tête `Authorization: Basic xxx` contient « identifiant:motdepasse » en base64 (un simple codage).
-// Après la connexion, l'outil n'utilise plus que le jeton Cyclos (en-tête `Session-Token`).
+// Session cookie: a small piece of text that the server asks the browser to send back with every request, to recognise it.
+// Its options: HttpOnly (unreadable by JavaScript, so it cannot be stolen by an XSS flaw), SameSite=Lax (not sent from
+// another site), Max-Age=28800 (8 hours). The cookie only holds a random identifier, WITH NO link to the Cyclos token.
+// Basic authentication: the `Authorization: Basic xxx` header holds "login:password" in base64 (a mere encoding).
+// After login, the tool only uses the Cyclos token (`Session-Token` header).
 appTest("connexion réussie : 303 vers /filtres, cookie de session, jeton Cyclos jamais exposé", async (app) => {
   const res = await app.login();
   assert.equal(res.status, 303);
@@ -56,7 +56,7 @@ appTest("connexion réussie : 303 vers /filtres, cookie de session, jeton Cyclos
   }
 });
 
-// Intention : un mauvais mot de passe donne 401 (non authentifié), aucun cookie, et le texte saisi n'est pas renvoyé dans la page.
+// Intention: a wrong password gives 401 (not authenticated), no cookie, and the typed text is not sent back in the page.
 appTest("connexion refusée : 401, pas de cookie, page « Connexion échouée »", async (app) => {
   const res = await app.login({ password: "mauvais" });
   assert.equal(res.status, 401);
@@ -68,7 +68,7 @@ appTest("connexion refusée : 401, pas de cookie, page « Connexion échouée »
   assert.equal((await app.request("/filtres")).status, 303); // still no session
 });
 
-// Intention : un formulaire incomplet est refusé sans même déranger Cyclos (pas d'appel inutile ni de tentative comptée).
+// Intention: an incomplete form is refused without even bothering Cyclos (no useless call and no attempt counted).
 appTest("connexion : champs vides -> 401 sans appeler Cyclos", async (app) => {
   for (const form of [{}, { login: "a" }, { password: "b" }, { login: "", password: "" }]) {
     const res = await app.request("/connexion", { method: "POST", form, headers: { Origin: app.base } });
@@ -77,8 +77,8 @@ appTest("connexion : champs vides -> 401 sans appeler Cyclos", async (app) => {
   assert.equal(app.cyclos.calls("POST", "/auth/session").length, 0);
 });
 
-// Intention : un identifiant ou un mot de passe avec accents, « : » ou caractères japonais est envoyé correctement à Cyclos (en UTF-8).
-// Sinon ces commerçants ne pourraient jamais se connecter. On décode l'en-tête Basic envoyé pour vérifier.
+// Intention: a login or password with accents, ":" or Japanese characters is correctly sent to Cyclos (in UTF-8).
+// Otherwise these merchants could never log in. We decode the Basic header that was sent to check.
 appTest("connexion : identifiants avec accents et caractères non latins transmis en UTF-8", async (app) => {
   const res = await app.login({ login: "Élodie", password: "pässwörd:日本" });
   assert.equal(res.status, 401); // unknown to the fake Cyclos, but the request was indeed made
@@ -89,8 +89,8 @@ appTest("connexion : identifiants avec accents et caractères non latins transmi
   );
 });
 
-// Intention : après 5 échecs depuis la même adresse, les tentatives suivantes sont bloquées (429 « trop de requêtes »), même avec le bon
-// mot de passe, et n'atteignent plus Cyclos. Cela empêche de deviner un mot de passe par essais répétés. `Retry-After` dit quand réessayer.
+// Intention: after 5 failures from the same address, further attempts are blocked (429 "too many requests"), even with the right
+// password, and no longer reach Cyclos. This prevents guessing a password by repeated tries. `Retry-After` says when to try again.
 appTest("429 après 5 échecs depuis la même adresse, même avec le bon mot de passe", async (app) => {
   for (let i = 0; i < 5; i += 1) {
     assert.equal((await app.login({ password: "faux" })).status, 401, `essai ${i + 1}`);
@@ -104,8 +104,8 @@ appTest("429 après 5 échecs depuis la même adresse, même avec le bon mot de 
   assert.equal(blocked.headers.get("set-cookie"), null);
 });
 
-// Intention : le blocage n'est pas définitif : il se lève au bout de 15 minutes. On n'attend pas : `sweep` (le nettoyage
-// périodique du serveur) est appelé avec une date future.
+// Intention: the block is not permanent: it lifts after 15 minutes. We do not wait: `sweep` (the server's periodic
+// cleanup) is called with a future date.
 appTest("429 : le blocage se lève après 15 minutes (nettoyage périodique)", async (app) => {
   for (let i = 0; i < 5; i += 1) await app.login({ password: "faux" });
   assert.equal((await app.login()).status, 429);
@@ -115,8 +115,8 @@ appTest("429 : le blocage se lève après 15 minutes (nettoyage périodique)", a
   assert.equal((await app.login()).status, 303);
 });
 
-// Intention : seuls les vrais mots de passe faux comptent. Un refus de droits (403) ou une panne de Cyclos (500) ne doivent
-// pas bloquer un commerçant honnête.
+// Intention: only genuinely wrong passwords count. A rights refusal (403) or a Cyclos outage (500) must not
+// block an honest merchant.
 appTest("429 : seuls les identifiants refusés comptent (403 et pannes de Cyclos non)", async (app) => {
   app.cyclos.force("POST /auth/session", 403);
   for (let i = 0; i < 7; i += 1) assert.equal((await app.login()).status, 403);
@@ -126,9 +126,9 @@ appTest("429 : seuls les identifiants refusés comptent (403 et pannes de Cyclos
   assert.equal((await app.login()).status, 303);
 });
 
-// Intention (sécurité) : le formulaire de connexion n'est accepté que s'il vient d'une page de NOTRE site. L'en-tête `Origin` (ou, à défaut,
-// `Referer`) indique d'où vient la requête ; un site pirate ne peut pas le falsifier depuis un navigateur. C'est une protection de type CSRF
-// pour la connexion (voir les tests « CSRF » plus bas). Cas refusés : autre site, « null », en-tête absent.
+// Intention (security): the login form is only accepted if it comes from a page of OUR site. The `Origin` header (or, failing that,
+// `Referer`) says where the request comes from; a malicious site cannot forge it from a browser. This is a CSRF-type protection
+// for the login (see the "CSRF" tests further down). Refused cases: other site, "null", missing header.
 appTest("Origin étranger, absent ou « null » : connexion refusée avant tout appel à Cyclos", async (app) => {
   const attempt = (headers) => app.request("/connexion", { method: "POST", form: { login: USER.login, password: USER.password }, headers });
   for (const headers of [{ Origin: "https://evil.example" }, { Origin: "null" }, {}, { Referer: "https://evil.example/page" }, { Origin: "http://127.0.0.1:1" }]) {
@@ -144,8 +144,8 @@ appTest("Origin étranger, absent ou « null » : connexion refusée avant tout 
   assert.equal((await attempt({ Referer: `${app.base}/` })).status, 303);
 });
 
-// Intention (sécurité) : dans des situations très variées (refus, panne, connexion coupée, 429, succès), le mot de passe ne doit
-// apparaître NI dans les réponses, NI dans le journal du serveur. On le note dans `seen`/`app.logs` et on cherche sa présence partout.
+// Intention (security): in very varied situations (refusal, outage, cut connection, 429, success), the password must
+// appear NEITHER in the responses NOR in the server log. It is noted in `seen`/`app.logs` and we look for it everywhere.
 appTest("le mot de passe n'apparaît ni dans les réponses ni dans les logs", async (app) => {
   const secret = "S3cret-à-ne-jamais-voir";
   const seen = [];
@@ -180,7 +180,7 @@ appTest("le mot de passe n'apparaît ni dans les réponses ni dans les logs", as
   }
 });
 
-// Intention : si Cyclos ne répond pas correctement (500), l'outil répond 502 (« passerelle défaillante ») sans créer de session.
+// Intention: if Cyclos does not answer correctly (500), the tool answers 502 ("bad gateway") without creating a session.
 appTest("Cyclos en panne à la connexion : 502, pas de session", async (app) => {
   app.cyclos.force("POST /auth/session", 500);
   const res = await app.login();
@@ -191,13 +191,13 @@ appTest("Cyclos en panne à la connexion : 502, pas de session", async (app) => 
 
 // ------------------------------------------------------------ sessions
 
-// Fausse l'horloge (`Date`) : à partir d'ici, `mock.timers.tick(ms)` fait avancer le temps instantanément.
+// Fakes the clock (`Date`): from here on, `mock.timers.tick(ms)` makes time advance instantly.
 function mockClock() {
   mock.timers.enable({ apis: ["Date"], now: Date.now() });
 }
 
-// Intention : une session s'éteint après 20 minutes SANS ACTIVITÉ (chaque page consultée prolonge), et le jeton est aussi fermé
-// chez Cyclos (DELETE). Sinon une session oubliée sur un poste partagé resterait ouverte.
+// Intention: a session ends after 20 minutes WITHOUT ACTIVITY (each page viewed extends it), and the token is also closed
+// at Cyclos (DELETE). Otherwise a session forgotten on a shared computer would stay open.
 appTest("session : expiration après 20 minutes d'inactivité, jeton Cyclos fermé", async (app) => {
   mockClock();
   await app.loggedIn();
@@ -214,7 +214,7 @@ appTest("session : expiration après 20 minutes d'inactivité, jeton Cyclos ferm
   assert.equal((await app.request("/filtres")).status, 303);
 });
 
-// Intention : même sans jamais s'arrêter, une session ne dure pas plus de 8 heures. Sinon un cookie volé fonctionnerait indéfiniment.
+// Intention: even without ever stopping, a session lasts no more than 8 hours. Otherwise a stolen cookie would work forever.
 appTest("session : durée absolue de 8 heures même avec une activité continue", async (app) => {
   mockClock();
   await app.loggedIn();
@@ -229,7 +229,7 @@ appTest("session : durée absolue de 8 heures même avec une activité continue"
   await until(() => app.cyclos.state.deleted.length === 1, "DELETE /auth/session");
 });
 
-// Intention : les durées viennent de la configuration (ici 1 s et 5 s via les options du test), pas de valeurs écrites en dur.
+// Intention: the durations come from the configuration (here 1 s and 5 s via the test options), not from hard-coded values.
 appTest("session : durées configurables (idleMs, maxMs)", { idleMs: 1000, maxMs: 5000 }, async (app) => {
   mockClock();
   await app.loggedIn();
@@ -239,7 +239,7 @@ appTest("session : durées configurables (idleMs, maxMs)", { idleMs: 1000, maxMs
   assert.equal((await app.request("/filtres")).status, 303);
 });
 
-// Intention : le serveur fait lui-même le ménage des sessions expirées (sans attendre une nouvelle requête) et ferme leur jeton chez Cyclos.
+// Intention: the server cleans up expired sessions by itself (without waiting for a new request) and closes their token at Cyclos.
 appTest("nettoyage périodique : sessions expirées retirées et jeton fermé sans nouvelle requête", async (app) => {
   mockClock();
   await app.loggedIn();
@@ -250,15 +250,15 @@ appTest("nettoyage périodique : sessions expirées retirées et jeton fermé sa
   await until(() => app.cyclos.state.deleted.includes("jeton-1"), "DELETE /auth/session par le nettoyage");
 });
 
-// Intention : ce ménage se déclenche automatiquement à intervalle régulier (ici 30 ms), sans que le test l'appelle.
+// Intention: this cleanup triggers automatically at a regular interval (here 30 ms), without the test calling it.
 appTest("nettoyage périodique : lancé tout seul à l'intervalle configuré", { sweepIntervalMs: 30 }, async (app) => {
   await app.loggedIn();
   mock.timers.enable({ apis: ["Date"], now: Date.now() + 30 * MINUTE });
   await until(() => app.cyclos.state.deleted.includes("jeton-1"), "nettoyage automatique");
 });
 
-// Intention : se déconnecter supprime la session locale, ferme le jeton chez Cyclos et efface le cookie (Max-Age=0).
-// Ensuite l'ancien cookie ne donne plus accès à rien, même s'il était volé.
+// Intention: logging out deletes the local session, closes the token at Cyclos and clears the cookie (Max-Age=0).
+// Afterwards the old cookie gives access to nothing, even if it had been stolen.
 appTest("déconnexion : session supprimée, DELETE envoyé à Cyclos, cookie effacé", async (app) => {
   const csrf = await app.loggedIn();
   const oldCookie = app.cookie;
@@ -275,7 +275,7 @@ appTest("déconnexion : session supprimée, DELETE envoyé à Cyclos, cookie eff
   assert.equal((await app.request("/releve", { method: "POST", form: { csrf, ...RANGE } })).status, 303);
 });
 
-// Intention : même si Cyclos refuse ou ne répond pas à la fermeture du jeton, le commerçant est quand même déconnecté de NOTRE outil.
+// Intention: even if Cyclos refuses or does not answer to the closing of the token, the merchant is still logged out of OUR tool.
 appTest("déconnexion : réussit localement même si Cyclos refuse ou ne répond pas", async (app) => {
   for (const status of [401, 500, "drop"]) {
     const csrf = await app.loggedIn();
@@ -287,7 +287,7 @@ appTest("déconnexion : réussit localement même si Cyclos refuse ou ne répond
   }
 });
 
-// Intention : cliquer « se déconnecter » alors que la session n'existe plus (expirée) ne provoque pas d'erreur : retour à l'accueil.
+// Intention: clicking "log out" when the session no longer exists (expired) causes no error: back to the home page.
 appTest("déconnexion sans session : redirection vers / et cookie effacé", async (app) => {
   const res = await app.request("/deconnexion", { method: "POST", form: {} });
   assert.equal(res.status, 303);
@@ -295,8 +295,8 @@ appTest("déconnexion sans session : redirection vers / et cookie effacé", asyn
   assert.match(res.headers.get("set-cookie"), /Max-Age=0/);
 });
 
-// Intention : si Cyclos répond 401 (le jeton a expiré chez eux), l'outil ferme la session locale et renvoie à la page de connexion,
-// au lieu d'afficher une erreur incompréhensible. `expireTokens()` du faux Cyclos simule cette expiration.
+// Intention: if Cyclos answers 401 (the token expired on their side), the tool closes the local session and sends back to the login page,
+// instead of showing an incomprehensible error. `expireTokens()` of the fake Cyclos simulates this expiry.
 appTest("jeton Cyclos expiré (401 loggedOut) : session locale supprimée et retour à /", async (app) => {
   for (const path of ["/releve", "/releve.pdf"]) {
     // Each attempt starts from a valid local session whose token is refused by Cyclos.
@@ -310,7 +310,7 @@ appTest("jeton Cyclos expiré (401 loggedOut) : session locale supprimée et ret
   }
 });
 
-// Intention : même réaction (retour à /) si le 401 arrive en cours de lecture (ici à la lecture des comptes), pas seulement au premier appel.
+// Intention: same reaction (back to /) if the 401 arrives in the middle of the reading (here when reading accounts), not only on the first call.
 appTest("401 de Cyclos au milieu de la lecture (comptes) : même redirection", async (app) => {
   const csrf = await app.loggedIn();
   app.cyclos.force("GET /self/accounts", 401);
@@ -322,12 +322,12 @@ appTest("401 de Cyclos au milieu de la lecture (comptes) : même redirection", a
 
 // ------------------------------------------------------------ CSRF
 
-// CSRF (Cross-Site Request Forgery) : un site pirate pourrait faire envoyer par le navigateur du commerçant, connecté, un formulaire
-// vers notre outil (le cookie part tout seul). Parade : chaque session a un jeton secret au hasard, mis dans les formulaires de
-// nos pages ; une action POST sans ce jeton est refusée (403). Un site pirate ne peut pas connaître ce jeton.
+// CSRF (Cross-Site Request Forgery): a malicious site could make the logged-in merchant's browser send a form
+// to our tool (the cookie goes along by itself). Defence: each session has a secret random token, put in the forms of
+// our pages; a POST action without this token is refused (403). A malicious site cannot know this token.
 for (const path of ["/releve", "/releve.pdf", "/deconnexion"]) {
-  // Intention : pour chaque route POST, un jeton absent, vide, faux, tronqué ou rallongé est refusé (403), sans appeler Cyclos et
-  // sans fermer la session. Le test est répété pour /releve, /releve.pdf et /deconnexion (la boucle `for` crée 3 tests).
+  // Intention: for each POST route, a missing, empty, wrong, truncated or lengthened token is refused (403), without calling Cyclos and
+  // without closing the session. The test is repeated for /releve, /releve.pdf and /deconnexion (the `for` loop creates 3 tests).
   appTest(`CSRF ${path} : refusé sans jeton, avec faux jeton, avec jeton vide ou tronqué ; session conservée`, async (app) => {
     const csrf = await app.loggedIn();
     const fake = "0".repeat(csrf.length);
@@ -345,7 +345,7 @@ for (const path of ["/releve", "/releve.pdf", "/deconnexion"]) {
   });
 }
 
-// Intention : le jeton d'une session A n'est pas valable dans la session B (chaque jeton est propre à sa session).
+// Intention: the token of session A is not valid in session B (each token belongs to its own session).
 appTest("CSRF : le jeton d'une autre session n'est pas accepté", async (app) => {
   const csrfA = await app.loggedIn();
   app.cookie = "";
@@ -357,14 +357,14 @@ appTest("CSRF : le jeton d'une autre session n'est pas accepté", async (app) =>
   assert.equal((await app.request("/deconnexion", { method: "POST", form: { csrf: csrfB } })).status, 303);
 });
 
-// Intention : seul le jeton dans le CORPS du formulaire compte ; dans l'adresse ou un en-tête, il est ignoré.
+// Intention: only the token in the form BODY counts; in the address or a header, it is ignored.
 appTest("CSRF : jeton passé en paramètre d'URL ou en en-tête ignoré", async (app) => {
   const csrf = await app.loggedIn();
   const res = await app.request(`/releve?csrf=${csrf}`, { method: "POST", form: RANGE, headers: { "X-CSRF-Token": csrf } });
   assert.equal(res.status, 403);
 });
 
-// Intention : sans session, ces pages renvoient à la connexion (303) et on n'interroge jamais Cyclos.
+// Intention: without a session, these pages send back to the login (303) and Cyclos is never queried.
 appTest("sans session : /releve, /releve.pdf, /filtres redirigent vers / (aucun appel à Cyclos)", async (app) => {
   for (const [method, path] of [["GET", "/filtres"], ["POST", "/releve"], ["POST", "/releve.pdf"]]) {
     const res = await app.request(path, { method, form: method === "POST" ? RANGE : undefined });
@@ -374,7 +374,7 @@ appTest("sans session : /releve, /releve.pdf, /filtres redirigent vers / (aucun 
   assert.equal(app.cyclos.state.requests.length, 0);
 });
 
-// Intention : un cookie « session » inventé ou mal formé est traité comme une absence de session, jamais comme une erreur ou un accès.
+// Intention: an invented or malformed "session" cookie is treated as an absence of session, never as an error or an access.
 appTest("cookie de session inconnu ou falsifié : traité comme absent", async (app) => {
   for (const cookie of ["session=abc", "session=", "session=00000000-0000-0000-0000-000000000000", "autre=1", "session"]) {
     app.cookie = cookie;
@@ -382,8 +382,8 @@ appTest("cookie de session inconnu ou falsifié : traité comme absent", async (
   }
 });
 
-// Intention : la déconnexion n'est possible que par POST (avec jeton CSRF) : un simple lien ou une image piégée ne doit pas pouvoir
-// déconnecter quelqu'un. En GET : 405 (méthode non autorisée) et la session reste ouverte.
+// Intention: logout is only possible by POST (with a CSRF token): a simple link or a booby-trapped image must not be able to
+// log someone out. With GET: 405 (method not allowed) and the session stays open.
 appTest("GET /deconnexion : 405 avec Allow: POST, session conservée", async (app) => {
   await app.loggedIn();
   const res = await app.request("/deconnexion");
@@ -395,10 +395,10 @@ appTest("GET /deconnexion : 405 avec Allow: POST, session conservée", async (ap
 
 // ------------------------------------------------------------ Cyclos 403
 
-// 403 (interdit) : Cyclos reconnaît l'utilisateur mais lui refuse cette action. Ce n'est pas une erreur de connexion : on garde la session.
+// 403 (forbidden): Cyclos recognises the user but refuses this action. This is not a login error: the session is kept.
 for (const path of ["/releve", "/releve.pdf"]) {
-  // Intention : un refus 403 de Cyclos sur les totaux donne une page « Accès refusé » claire, SANS fermer la session, et le
-  // commerçant peut réessayer ensuite. (Le cas 403 sur la liste des comptes est dans test/erreurs.test.js.)
+  // Intention: a 403 refusal from Cyclos on the totals gives a clear "Accès refusé" page, WITHOUT closing the session, and the
+  // merchant can try again afterwards. (The 403 case on the list of accounts is in test/erreurs.test.js.)
   appTest(`403 de Cyclos sur ${path} : page « Accès refusé », session conservée`, async (app) => {
     const csrf = await app.loggedIn();
     app.cyclos.force("GET /self/accounts/membre", 403);
@@ -419,7 +419,7 @@ for (const path of ["/releve", "/releve.pdf"]) {
   });
 }
 
-// Intention : un 403 dès la connexion affiche « Accès refusé » mais sans session ni cookie (rien à déconnecter).
+// Intention: a 403 right at login shows "Accès refusé" but with no session or cookie (nothing to log out of).
 appTest("403 de Cyclos à la connexion : « Accès refusé » sans session ni cookie", async (app) => {
   app.cyclos.force("POST /auth/session", 403);
   const res = await app.login();
@@ -431,8 +431,8 @@ appTest("403 de Cyclos à la connexion : « Accès refusé » sans session ni co
   assert.equal(res.headers.get("set-cookie"), null);
 });
 
-// Intention : si Cyclos tombe en panne en plein relevé (500), le commerçant voit seulement « Impossible de joindre Cyclos » (aucun détail
-// technique), la session est conservée, et la panne est notée dans le journal du serveur.
+// Intention: if Cyclos goes down in the middle of a statement (500), the merchant only sees "Impossible de joindre Cyclos" (no technical
+// detail), the session is kept, and the outage is noted in the server log.
 appTest("pannes de Cyclos pendant un relevé : 502 sans fuite de détails, session conservée", async (app) => {
   const csrf = await app.loggedIn();
   for (const key of ["GET /self/accounts", "GET /self/accounts/membre", "GET /self/accounts/membre/history"]) {

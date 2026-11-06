@@ -1,17 +1,17 @@
-// === LIRE EN PREMIER : à quoi sert ce fichier ? ===
-// Pour vérifier le contenu d'un PDF dans un test, il faut pouvoir en LIRE le texte. Un PDF n'est pas du texte brut :
-// c'est un conteneur d'objets, dont le contenu des pages est compressé (algorithme « Flate », comme dans un zip).
-// Plutôt que d'ajouter une bibliothèque (le projet n'en veut pas de plus), ce fichier fait une lecture MINIMALE :
-// il repère les blocs compressés, les décompresse, et extrait les textes que pdfkit a écrits.
-// Il ne sait pas tout lire : il ne convient qu'aux PDF produits par notre outil. Utilisé par test/releve.test.js et
-// test/totaux-calcules.test.js. Un `Buffer` est la façon qu'a Node de représenter des octets bruts (voir test/statique.test.js).
+// === READ THIS FIRST: what is this file for? ===
+// To check the content of a PDF in a test, its TEXT must be readable. A PDF is not plain text:
+// it is a container of objects whose page content is compressed (the "Flate" algorithm, as in a zip).
+// Rather than add a library (the project wants no more dependencies), this file does a MINIMAL reading:
+// it finds the compressed blocks, decompresses them, and extracts the texts that pdfkit wrote.
+// It cannot read everything: it only suits PDFs produced by our tool. Used by test/releve.test.js and
+// test/totaux-calcules.test.js. A `Buffer` is Node's way of representing raw bytes (see test/statique.test.js).
 // Minimal reading of the text of a PDF produced by pdfkit, without dependency:
 // streams are Flate-compressed, texts are written in hexadecimal (<..> Tj
 // or [<..> n <..>] TJ) with the standard fonts (one byte per character,
 // Windows-1252). Enough to check the content of a ticket.
 import { inflateSync } from "node:zlib";
 
-// Reçoit les octets du PDF et renvoie un tableau : un texte par page (lignes séparées par « \n »).
+// Receives the bytes of the PDF and returns an array: one text per page (lines separated by "\n").
 export function pdfPages(buffer) {
   const raw = buffer.toString("latin1");
   const pages = [];
@@ -31,17 +31,17 @@ export function pdfPages(buffer) {
 }
 
 // pdfkit standard fonts: one byte per character, in Windows-1252 (€, –, « »...).
-// Les polices standard du PDF stockent les caractères sur un octet, selon la table Windows-1252
-// (celle qui contient é, è, € ...). Le TextDecoder retraduit ces octets en vrai texte.
+// The PDF's standard fonts store characters on one byte, following the Windows-1252 table
+// (the one that contains é, è, € ...). The TextDecoder turns these bytes back into real text.
 const WIN_1252 = new TextDecoder("windows-1252");
 
-// Dans le PDF, le texte est écrit en hexadécimal : « 43 61 66 e9 » pour « Café ». On convertit en octets puis en texte.
+// In the PDF, text is written in hexadecimal: "43 61 66 e9" for "Café". We convert to bytes then to text.
 function decode(hex) {
   return WIN_1252.decode(Buffer.from(hex, "hex"));
 }
 
-// Les deux écritures de texte du PDF : `<hex> Tj` (un morceau) et `[<hex> n <hex>] TJ` (plusieurs morceaux
-// avec des ajustements d'espacement). Cette expression régulière les repère toutes et recolle les morceaux.
+// The two ways the PDF writes text: `<hex> Tj` (one piece) and `[<hex> n <hex>] TJ` (several pieces
+// with spacing adjustments). This regular expression finds them all and glues the pieces back together.
 function textOf(content) {
   const lines = [];
   for (const m of content.matchAll(/\[((?:<[0-9a-fA-F]*>|[^\]<])*)\]\s*TJ|<([0-9a-fA-F]*)>\s*Tj/g)) {

@@ -1,19 +1,19 @@
-// === CE QUE VÉRIFIE CE FICHIER ===
-// Le démarrage réel de l'outil avec `node server.js`, tel que l'opérateur le lance. Les autres tests démarrent le serveur par du code ; ici on lance
-// un VRAI processus Node (`spawn`) et on lit ce qu'il affiche. On vérifie que l'import du fichier ne démarre rien (important pour les tests), que
-// le port (PORT) et l'adresse de Cyclos (CYCLOS_BASE_URL) de l'environnement sont bien pris en compte. Utilise le faux Cyclos.
-// Notions de base (assert, async) : test/statique.test.js.
+// === WHAT THIS FILE CHECKS ===
+// The real startup of the tool with `node server.js`, as the operator launches it. The other tests start the server through code; here we launch
+// a REAL Node process (`spawn`) and read what it prints. We check that importing the file starts nothing (important for the tests), and that
+// the port (PORT) and the Cyclos address (CYCLOS_BASE_URL) from the environment are taken into account. Uses the fake Cyclos.
+// Basic notions (assert, async): test/statique.test.js.
 // "node server.js" starts as before; importing the file starts nothing.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { startFakeCyclos } from "../test-support/fake-cyclos.js";
 
-// ROOT : le dossier du projet, où lancer `node server.js`.
+// ROOT: the project folder, where `node server.js` is launched.
 const ROOT = new URL("../", import.meta.url);
 
-// Lance un processus Node avec les variables d'environnement données, et rassemble tout ce qu'il écrit (sortie normale et erreurs)
-// dans `output()`. `exited` est une promesse qui se réalise à la fin du processus.
+// Launches a Node process with the given environment variables, and gathers everything it writes (normal output and errors)
+// in `output()`. `exited` is a promise that resolves when the process ends.
 function run(args, env) {
   const child = spawn(process.execPath, args, {
     cwd: ROOT,
@@ -27,16 +27,16 @@ function run(args, env) {
   return { child, exited, output: () => output };
 }
 
-// Intention : IMPORTER server.js ne doit démarrer aucun serveur et ne rien afficher, sinon chaque fichier de test qui l'importe
-// ouvrirait un port. Le processus doit se terminer seul, avec le code 0 (succès).
+// Intention: IMPORTING server.js must start no server and print nothing, otherwise every test file that imports it
+// would open a port. The process must end by itself, with code 0 (success).
 test("importer server.js ne démarre aucun serveur et le processus se termine", async () => {
   const { exited, output } = run(["--input-type=module", "-e", 'await import("./server.js")'], { PORT: "1" });
   assert.equal(await exited, 0);
   assert.equal(output(), "");
 });
 
-// Intention : lancé pour de bon, le serveur écoute sur le port demandé (variable PORT), affiche son adresse et le canal, et sert la page de
-// connexion. Le port est tiré au hasard pour ne pas entrer en conflit avec un autre programme. Le bloc `finally` arrête toujours le processus.
+// Intention: launched for real, the server listens on the requested port (PORT variable), prints its address and the channel, and serves the login
+// page. The port is drawn at random so as not to clash with another program. The `finally` block always stops the process.
 test("node server.js : écoute sur PORT, annonce l'adresse, sert la page de connexion", async () => {
   const cyclos = await startFakeCyclos();
   const port = 20000 + Math.floor(Math.random() * 20000);
@@ -56,8 +56,8 @@ test("node server.js : écoute sur PORT, annonce l'adresse, sert la page de conn
   }
 });
 
-// Intention : l'adresse de Cyclos donnée par la variable d'environnement CYCLOS_BASE_URL est bien utilisée pour la connexion (le faux Cyclos reçoit
-// l'appel). On ajoute volontairement un « / » final pour vérifier qu'il est ignoré. Sans cela, l'outil interrogerait la démo de Cyclos.
+// Intention: the Cyclos address given by the CYCLOS_BASE_URL environment variable is indeed used for the login (the fake Cyclos receives
+// the call). We deliberately add a trailing "/" to check that it is ignored. Without this, the tool would query the Cyclos demo.
 test("node server.js : CYCLOS_BASE_URL est bien utilisée pour la connexion", async () => {
   const cyclos = await startFakeCyclos();
   const port = 20000 + Math.floor(Math.random() * 20000);

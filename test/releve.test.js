@@ -1,8 +1,8 @@
-// === CE QUE VÉRIFIE CE FICHIER ===
-// Le produit lui-même : le ticket de fin de service, à l'écran (POST /releve) et en PDF (POST /releve.pdf). On vérifie que la lecture des
-// transactions chez Cyclos est complète (plusieurs pages), que les dates sont bien envoyées, que les totaux collent aux lignes, que les
-// textes venus de Cyclos sont protégés, et que le PDF dit la même chose que l'écran. Pour le commerçant : un ticket juste, c'est sa caisse.
-// Utilise le harnais et le faux Cyclos (test-support/), et pdf-text.js pour lire le PDF. Notions de base : test/statique.test.js.
+// === WHAT THIS FILE CHECKS ===
+// The product itself: the end-of-service ticket, on screen (POST /releve) and as a PDF (POST /releve.pdf). We check that the reading of
+// transactions at Cyclos is complete (several pages), that dates are sent correctly, that totals match the lines, that texts coming
+// from Cyclos are protected, and that the PDF says the same as the screen. For the merchant: a correct ticket is their till.
+// Uses the harness and the fake Cyclos (test-support/), and pdf-text.js to read the PDF. Basic notions: test/statique.test.js.
 // POST /releve (page) and POST /releve.pdf, with the fake Cyclos.
 import assert from "node:assert/strict";
 import { DateTime } from "luxon";
@@ -11,11 +11,11 @@ import { entry } from "../test-support/fake-cyclos.js";
 import { pdfPages } from "../test-support/pdf-text.js";
 
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
-// NNBSP = espace fine insécable (U+202F), utilisée entre les milliers dans les montants (« 1 234,50 »).
+// NNBSP = narrow no-break space (U+202F), used between thousands in amounts ("1 234,50").
 const NNBSP = "\u202f";
 
 // n transactions, most recent first like Cyclos; one in four is outgoing.
-// Fabrique `count` transactions fictives, la plus récente en premier comme Cyclos, avec un mélange de montants reçus et sortis.
+// Builds `count` fictitious transactions, most recent first like Cyclos, with a mix of received and sent amounts.
 function history(count) {
   const list = [];
   for (let n = count - 1; n >= 0; n -= 1) {
@@ -24,19 +24,19 @@ function history(count) {
   return list;
 }
 
-// Convertit un montant affiché (« 1 234,50 ») en centimes (123450) : on compare ainsi des entiers, sans erreur d'arrondi.
+// Converts a displayed amount ("1 234,50") into cents (123450): we thus compare integers, without rounding error.
 const cents = (text) => Math.round(Number(text.replaceAll(NNBSP, "").replace(",", ".")) * 100);
 
-// Extrait de la page HTML les trois lignes du résumé : [libellé, montant]. Une expression régulière lit les balises <dt>/<dd>.
+// Extracts the three summary lines from the HTML page: [label, amount]. A regular expression reads the <dt>/<dd> tags.
 function summaryOf(html) {
   return [...html.matchAll(/<dt>(.*?)<\/dt>\s*<dd>(.*?)<\/dd>/g)].map((m) => [m[1], m[2]]);
 }
-// Les lignes de transactions de la page (une <li class="ligne"> par transaction).
+// The transaction lines of the page (one <li class="ligne"> per transaction).
 const rowsOf = (html) => [...html.matchAll(/<li class="ligne">([\s\S]*?)<\/li>/g)].map((m) => m[1]);
-// Les montants affichés dans le détail.
+// The amounts displayed in the detail.
 const amountsOf = (html) => [...html.matchAll(/<span class="montant">(.*?)<\/span>/g)].map((m) => m[1]);
 
-// Raccourci : applique l'état voulu au faux Cyclos, se connecte, et demande le relevé (page ou PDF). Renvoie la réponse.
+// Shortcut: applies the wanted state to the fake Cyclos, logs in, and asks for the statement (page or PDF). Returns the response.
 async function statement(app, state = {}, path = "/releve", range = RANGE) {
   Object.assign(app.cyclos.state, state);
   const csrf = await app.loggedIn();
@@ -45,12 +45,12 @@ async function statement(app, state = {}, path = "/releve", range = RANGE) {
 
 // ------------------------------------------------------------ /releve
 
-// Intention : le ticket est COMPLET et COHÉRENT : toutes les transactions sont lues malgré la pagination, les dates sont envoyées à Cyclos au bon
-// format, et la somme des lignes affichées égale le résumé. Si ça cassait : des ventes manqueraient ou le solde serait faux.
+// Intention: the ticket is COMPLETE and CONSISTENT: all transactions are read despite pagination, dates are sent to Cyclos in the right
+// format, and the sum of the displayed lines equals the summary. If this broke: sales would be missing or the balance would be wrong.
 //
-// Pagination : Cyclos ne renvoie pas 450 lignes d'un coup mais par pages de 200 ; l'outil demande la page 0, 1, 2... tant que Cyclos
-// annonce une page suivante. UTC : Cyclos reçoit les dates en heure universelle (UTC) ; Paris en janvier = UTC+1, donc minuit à
-// Paris est envoyé comme 23:00 la veille. Le test vérifie ce décalage.
+// Pagination: Cyclos does not return 450 lines at once but in pages of 200; the tool asks for page 0, 1, 2... as long as Cyclos
+// announces a next page. UTC: Cyclos receives dates in universal time (UTC); Paris in January = UTC+1, so midnight in
+// Paris is sent as 23:00 the day before. The test checks this offset.
 appTest("/releve : relevé cohérent avec les totaux sur plusieurs pages (450 lignes, 3 pages)", async (app) => {
   const entries = history(450);
   const res = await statement(app, { entries });
@@ -92,15 +92,15 @@ appTest("/releve : relevé cohérent avec les totaux sur plusieurs pages (450 li
   assert.match(html, /action="\/releve\.pdf"[\s\S]*name="csrf" value="[0-9a-f]{64}"[\s\S]*name="start" value="2026-01-10T00:00"[\s\S]*name="end" value="2026-01-10T23:59"/);
 });
 
-// Intention : si Cyclos renvoie des pages plus petites que demandé (50 au lieu de 200), l'outil continue quand même de lire jusqu'à la fin,
-// guidé par l'en-tête `X-Has-Next-Page` et non par une supposition. Sinon le ticket serait tronqué sans prévenir.
+// Intention: if Cyclos returns pages smaller than requested (50 instead of 200), the tool still keeps reading to the end,
+// guided by the `X-Has-Next-Page` header and not by an assumption. Otherwise the ticket would be cut without warning.
 appTest("/releve : Cyclos donne des pages plus petites que demandé, la lecture suit l'en-tête X-Has-Next-Page", async (app) => {
   const res = await statement(app, { entries: history(130), pageSize: 50 });
   assert.equal(rowsOf(await res.text()).length, 130);
   assert.equal(app.cyclos.calls("GET", "/self/accounts/membre/history").length, 3);
 });
 
-// Intention : une période sans vente donne un ticket valide à zéro (« Aucune transaction sur cette plage »), pas une erreur.
+// Intention: a period with no sale gives a valid ticket at zero ("Aucune transaction sur cette plage"), not an error.
 appTest("/releve : aucune transaction", async (app) => {
   const html = await (await statement(app, { entries: [] })).text();
   assert.match(html, /Aucune transaction sur cette plage/);
@@ -108,8 +108,8 @@ appTest("/releve : aucune transaction", async (app) => {
   assert.deepEqual(summaryOf(html), [["0 paiement reçu", "0,00"], ["0 paiement sorti", "0,00"], ["Solde net", "0,00"]]);
 });
 
-// Intention : au-delà de 2000 transactions, le détail est coupé (on garde les plus récentes) ET un avertissement le dit. Le résumé reste
-// juste car Cyclos l'a calculé sur toute la période. La lecture s'arrête au plafond au lieu de télécharger les 2500 lignes.
+// Intention: beyond 2000 transactions, the detail is cut (the most recent are kept) AND a warning says so. The summary stays
+// correct because Cyclos computed it over the whole period. Reading stops at the cap instead of downloading all 2500 lines.
 appTest("/releve : plafond de 2000 lignes -> avertissement, les plus récentes gardées, totaux exacts", async (app) => {
   const entries = history(2500);
   const html = await (await statement(app, { entries })).text();
@@ -125,7 +125,7 @@ appTest("/releve : plafond de 2000 lignes -> avertissement, les plus récentes g
   assert.ok(app.cyclos.calls("GET", "/self/accounts/membre/history").length <= 11, "lecture arrêtée au plafond");
 });
 
-// Cas limite : 2000 lignes pile = rien d'omis, donc pas d'avertissement ; 2001 = une ligne omise, donc avertissement.
+// Edge case: exactly 2000 lines = nothing left out, so no warning; 2001 = one line left out, so a warning.
 appTest("/releve : exactement 2000 lignes -> pas d'avertissement ; 2001 -> avertissement", async (app) => {
   const csrf = await app.loggedIn();
   app.cyclos.state.entries = history(2000);
@@ -138,7 +138,7 @@ appTest("/releve : exactement 2000 lignes -> pas d'avertissement ; 2001 -> avert
   assert.match(html, /class="avertissement"/);
 });
 
-// Intention : le nom du commerçant est un « plus » : si Cyclos ne le donne pas (erreur 500), le ticket est produit quand même, sans nom.
+// Intention: the merchant's name is a "nice to have": if Cyclos does not give it (500 error), the ticket is still produced, without a name.
 appTest("/releve : nom d'affichage indisponible -> relevé sans nom", async (app) => {
   app.cyclos.force("GET /users/self", 500);
   const html = await (await statement(app, { entries: history(3) })).text();
@@ -146,7 +146,7 @@ appTest("/releve : nom d'affichage indisponible -> relevé sans nom", async (app
   assert.equal(rowsOf(html).length, 3);
 });
 
-// Intention : mais un 401 (jeton expiré) pendant cette demande est grave : retour à la connexion, session fermée.
+// Intention: but a 401 (expired token) during this request is serious: back to the login, session closed.
 appTest("/releve : 401 sur le nom d'affichage -> session close, retour à /", async (app) => {
   app.cyclos.force("GET /users/self", 401);
   const res = await statement(app, { entries: history(3) });
@@ -154,8 +154,8 @@ appTest("/releve : 401 sur le nom d'affichage -> session close, retour à /", as
   assert.equal(res.headers.get("location"), "/");
 });
 
-// Intention (sécurité) : les noms et descriptions viennent de Cyclos, donc de n'importe quel utilisateur. Un nom piégé contenant <script> ou <img onerror>
-// doit être affiché comme du texte, jamais interprété par le navigateur (faille XSS). Voir `escapeHtml` dans test/unit.test.js.
+// Intention (security): names and descriptions come from Cyclos, hence from any user. A booby-trapped name containing <script> or <img onerror>
+// must be displayed as text, never interpreted by the browser (XSS flaw). See `escapeHtml` in test/unit.test.js.
 appTest("/releve : valeurs de Cyclos échappées (nom, contrepartie, description)", async (app) => {
   const hostile = '<script>alert(1)</script><style>*{}</style><img src=x onerror=alert(1)> & "q"';
   app.cyclos.state.displayName = hostile;
@@ -168,8 +168,8 @@ appTest("/releve : valeurs de Cyclos échappées (nom, contrepartie, description
   assert.ok(html.includes("&amp; &quot;q&quot;"));
 });
 
-// Intention : des dates fausses donnent 400 avec le formulaire réaffiché (et ce que l'utilisateur a tapé, échappé), et Cyclos n'est PAS appelé.
-// Le même jeu de cas est essayé sur la page et sur le PDF.
+// Intention: wrong dates give 400 with the form displayed again (and what the user typed, escaped), and Cyclos is NOT called.
+// The same set of cases is tried on the page and on the PDF.
 appTest("/releve : dates invalides -> 400 sur la page des filtres, valeurs saisies conservées, Cyclos non appelé", async (app) => {
   const csrf = await app.loggedIn();
   const cases = [
@@ -197,8 +197,8 @@ appTest("/releve : dates invalides -> 400 sur la page des filtres, valeurs saisi
   assert.ok(typed.includes('value="n\'importe quoi"'));
 });
 
-// Intention : une fin dans le futur est acceptée mais envoyée à Cyclos comme « maintenant », pas comme une date qui n'est pas encore arrivée.
-// Les dates sont calculées à partir de l'heure réelle, pour que le test reste vrai quel que soit le jour.
+// Intention: a future end is accepted but sent to Cyclos as "now", not as a date that has not yet arrived.
+// Dates are computed from the real time, so that the test stays true whatever the day.
 appTest("/releve : fin dans le futur acceptée (ramenée à maintenant)", async (app) => {
   const csrf = await app.loggedIn();
   // Start yesterday, end tomorrow (Paris time), computed relative to now.
@@ -210,8 +210,8 @@ appTest("/releve : fin dans le futur acceptée (ramenée à maintenant)", async 
   assert.ok(Date.parse(until) <= Date.now() && Date.now() - Date.parse(until) < 60_000, until);
 });
 
-// Intention : les raccourcis (hier, 6 heures, inconnu) préremplissent le formulaire avec des dates bien formées, et le jeton CSRF caché est
-// celui de la session. Si le champ était vide ou mal formé, le commerçant devrait tout ressaisir.
+// Intention: the shortcuts (yesterday, 6 hours, unknown) prefill the form with well-formed dates, and the hidden CSRF token is
+// the session's one. If the field were empty or malformed, the merchant would have to retype everything.
 appTest("/filtres : préréglages et champs préremplis, jeton CSRF propre à la session", async (app) => {
   const csrf = await app.loggedIn();
   for (const preset of ["", "?preset=hier", "?preset=6h", "?preset=nimportequoi"]) {
@@ -227,8 +227,8 @@ appTest("/filtres : préréglages et champs préremplis, jeton CSRF propre à la
 
 // ------------------------------------------------------------ /releve.pdf
 
-// Intention : le PDF est un vrai PDF téléchargeable (en-têtes, nom de fichier daté), multi-pages numérotées, et son contenu dit EXACTEMENT
-// la même chose que la page : mêmes totaux, mêmes transactions dans le même ordre. Le texte est lu par `pdfPages` (test-support/pdf-text.js).
+// Intention: the PDF is a real downloadable PDF (headers, dated file name), multi-page and numbered, and its content says EXACTLY
+// the same as the page: same totals, same transactions in the same order. The text is read by `pdfPages` (test-support/pdf-text.js).
 appTest("/releve.pdf : PDF valide, bons en-têtes, nom de fichier, contenu cohérent avec le ticket", async (app) => {
   const entries = history(120);
   const csrf = await app.loggedIn();
@@ -274,7 +274,7 @@ appTest("/releve.pdf : PDF valide, bons en-têtes, nom de fichier, contenu cohé
   assert.ok(!text.includes("avertissement") && !text.includes("Attention"));
 });
 
-// Intention : l'avertissement de liste tronquée figure aussi dans le PDF, pas seulement à l'écran (sinon le papier mentirait par omission).
+// Intention: the warning about a truncated list is also in the PDF, not only on screen (otherwise the paper would lie by omission).
 appTest("/releve.pdf : plafond atteint -> avertissement dans le PDF aussi", async (app) => {
   const res = await statement(app, { entries: history(2100) }, "/releve.pdf");
   assert.equal(res.status, 200);
@@ -282,7 +282,7 @@ appTest("/releve.pdf : plafond atteint -> avertissement dans le PDF aussi", asyn
   assert.match(text, /Attention : la liste est limitée aux 2000 transactions les plus récentes/);
 });
 
-// Intention : un PDF sans transaction est produit correctement, sur une page.
+// Intention: a PDF with no transaction is produced correctly, on one page.
 appTest("/releve.pdf : sans transaction", async (app) => {
   const res = await statement(app, { entries: [] }, "/releve.pdf");
   assert.equal(res.status, 200);
@@ -291,8 +291,8 @@ appTest("/releve.pdf : sans transaction", async (app) => {
   assert.match(text, /Page 1 \/ 1/);
 });
 
-// Intention : le PDF n'imprime que les lettres de la police standard (accents français, €...). Le reste devient « ? ». La page à l'écran,
-// elle, garde tout (cyrillique, japonais, emoji). Limite connue du README, fixée ici pour qu'elle ne change pas par accident.
+// Intention: the PDF only prints the letters of the standard font (French accents, €...). The rest becomes "?". The on-screen page,
+// for its part, keeps everything (Cyrillic, Japanese, emoji). Known limit from the README, pinned here so it does not change by accident.
 appTest("/releve.pdf : caractères hors Windows-1252 remplacés par ?, accents et € conservés ; la page HTML garde tout", async (app) => {
   const e = entry(1, { description: "Café 5 € Привет 😀", who: "Zoë" });
   e.relatedAccount = { user: { display: "Дмитрий" } };
@@ -308,7 +308,7 @@ appTest("/releve.pdf : caractères hors Windows-1252 remplacés par ?, accents e
   assert.ok(lines.includes("Chez Élodie – ??"));
 });
 
-// Intention : si Cyclos tombe en panne au moment du PDF, on répond une erreur 502 en texte, jamais un « faux PDF » ou un PDF à moitié envoyé.
+// Intention: if Cyclos goes down at the time of the PDF, we answer a 502 error as text, never a "fake PDF" or a half-sent PDF.
 appTest("/releve.pdf : Cyclos en panne -> 502, rien d'envoyé comme PDF", async (app) => {
   const res = await statement(app, { entries: history(3) }, "/releve.pdf");
   assert.equal(res.status, 200);
@@ -320,7 +320,7 @@ appTest("/releve.pdf : Cyclos en panne -> 502, rien d'envoyé comme PDF", async 
   assert.equal(failed.headers.get("content-disposition"), null);
 });
 
-// Intention : ces routes n'existent qu'en POST (avec jeton CSRF) ; une adresse tapée dans le navigateur (GET) donne 404.
+// Intention: these routes only exist as POST (with a CSRF token); an address typed in the browser (GET) gives 404.
 appTest("/releve.pdf : un accès en GET n'existe pas", async (app) => {
   await app.loggedIn();
   assert.equal((await app.request("/releve.pdf")).status, 404);

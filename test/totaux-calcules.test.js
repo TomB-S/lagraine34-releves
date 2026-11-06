@@ -1,8 +1,8 @@
-// === CE QUE VÉRIFIE CE FICHIER ===
-// Le calcul des TOTAUX du ticket (paiements reçus, sortis, solde net). Sur la vraie instance, Cyclos ne renvoie pas ces totaux : c'est donc
-// NOTRE code qui les calcule à partir des transactions. Une erreur ici = un solde faux sur le ticket du commerçant. On vérifie la
-// précision (centimes exacts), le cas « liste trop longue » (on affiche « Non disponible » plutôt qu'un chiffre faux), et que l'écran et le
-// PDF disent la même chose. Utilise le faux Cyclos en mode `indicators: false` qui imite la vraie instance. Notions de base : test/statique.test.js.
+// === WHAT THIS FILE CHECKS ===
+// The computation of the ticket TOTALS (payments received, sent, net balance). On the real instance, Cyclos does not return these totals: so
+// OUR code computes them from the transactions. An error here = a wrong balance on the merchant's ticket. We check
+// precision (exact cents), the "list too long" case (we show "Non disponible" rather than a wrong figure), and that the screen and the
+// PDF say the same thing. Uses the fake Cyclos in `indicators: false` mode, which imitates the real instance. Basic notions: test/statique.test.js.
 // Summary totals when Cyclos answers without incoming/outgoing/netInflow
 // (behaviour observed on the real instance): computed from the
 // transactions if the list is complete, "Non disponible" otherwise.
@@ -15,18 +15,18 @@ import { pdfPages } from "../test-support/pdf-text.js";
 import { ticketModel } from "../server.js";
 
 const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
-// Espace fine insécable (U+202F) entre les milliers des montants affichés.
+// Narrow no-break space (U+202F) between the thousands of displayed amounts.
 const NNBSP = " ";
-// Texte affiché quand un total ne peut pas être garanti. Mieux vaut « Non disponible » qu'un faux chiffre.
+// Text displayed when a total cannot be guaranteed. Better "Non disponible" than a wrong figure.
 const NA = "Non disponible";
 
 // Lines with the given amounts (most recent first, like Cyclos).
-// Fabrique des transactions à partir d'une liste de montants (texte), la plus récente en premier comme Cyclos.
+// Builds transactions from a list of amounts (text), most recent first like Cyclos.
 const withAmounts = (amounts) =>
   amounts.map((amount, n) => entry(n, { amount })).reverse();
 
 // n lines: three incoming for one outgoing.
-// Fabrique `count` transactions mélangées (trois reçues pour une sortie).
+// Builds `count` mixed transactions (three received for one sent).
 function history(count) {
   const list = [];
   for (let n = count - 1; n >= 0; n -= 1) {
@@ -35,27 +35,27 @@ function history(count) {
   return list;
 }
 
-// Lit les trois lignes du résumé dans la page : [libellé, montant].
+// Reads the three summary lines in the page: [label, amount].
 const summaryOf = (html) => [...html.matchAll(/<dt>(.*?)<\/dt>\s*<dd>(.*?)<\/dd>/g)].map((m) => [m[1], m[2]]);
 const rowsOf = (html) => [...html.matchAll(/<li class="ligne">/g)];
-// Écrit un nombre de centimes à la française (123450 -> « 1 234,50 ») pour comparer avec la page.
+// Writes a number of cents the French way (123450 -> "1 234,50") to compare with the page.
 const fr = (cents) => {
   const abs = Math.abs(cents);
   const integer = String(Math.floor(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, NNBSP);
   return `${integer},${String(abs % 100).padStart(2, "0")}`;
 };
 
-// Applique l'état au faux Cyclos, se connecte et envoie la demande de relevé (page ou PDF).
+// Applies the state to the fake Cyclos, logs in and sends the statement request (page or PDF).
 async function ask(app, state, path = "/releve") {
   Object.assign(app.cyclos.state, state);
   const csrf = await app.loggedIn();
   return app.request(path, { method: "POST", form: { csrf, ...RANGE } });
 }
-// Raccourci : le HTML de la page de relevé.
+// Shortcut: the HTML of the statement page.
 const page = async (app, state) => (await ask(app, state)).text();
 
 // The summary as printed in the PDF: [label, value] (narrow spaces -> spaces).
-// Relève dans le PDF les montants qui suivent les libellés du résumé, pour les comparer à la page.
+// Picks up in the PDF the amounts that follow the summary labels, to compare them with the page.
 async function pdfSummary(app, state, labels) {
   const res = await ask(app, state, "/releve.pdf");
   assert.equal(res.status, 200);
@@ -70,16 +70,16 @@ async function pdfSummary(app, state, labels) {
     }),
   };
 }
-// Dans le PDF les espaces fines sont des espaces normales ; on convertit la valeur de la page pour comparer.
+// In the PDF narrow spaces are normal spaces; we convert the page value to compare.
 const asPdf = (summary) => summary.map(([label, value]) => [label, value.replaceAll(NNBSP, " ")]);
 
 // ------------------------------------------------- totals computed by the code
 
-// Intention : sans totaux fournis par Cyclos, l'outil les calcule lui-même sur toutes les pages, et le résultat est exact.
+// Intention: without totals provided by Cyclos, the tool computes them itself over all pages, and the result is exact.
 //
-// Pourquoi des ENTIERS : en JavaScript, 0.1 + 0.2 donne 0.30000000000000004 (les nombres à virgule sont approximatifs). Pour de l'argent
-// c'est inacceptable ; le serveur convertit donc chaque montant en centimes entiers avec des `BigInt` (entiers de taille illimitée,
-// écrits 12n), additionne, puis remet la virgule. Ici le test refait le calcul de son côté en centimes pour comparer.
+// Why INTEGERS: in JavaScript, 0.1 + 0.2 gives 0.30000000000000004 (floating-point numbers are approximate). For money
+// that is unacceptable; the server therefore converts each amount into whole cents with `BigInt` (integers of unlimited size,
+// written 12n), adds them up, then puts the decimal point back. Here the test redoes the computation on its side in cents to compare.
 appTest("sans indicateurs : totaux calculés sur plusieurs pages (450 lignes, 3 pages)", async (app) => {
   const entries = history(450);
   const html = await page(app, { entries, indicators: false });
@@ -102,8 +102,8 @@ appTest("sans indicateurs : totaux calculés sur plusieurs pages (450 lignes, 3 
   assert.equal(shown.reduce((t, c) => t + c, 0), inSum - outSum);
 });
 
-// Intention : 0,10 + 0,20 fait exactement 0,30 ; 1500 fois 0,10 fait exactement 150,00 (un calcul à virgule dériverait) ; les montants entiers,
-// à une décimale ou très grands sont bien lus. Les deux derniers cas reprennent sans le répéter l'état `indicators: false` posé au premier appel.
+// Intention: 0.10 + 0.20 makes exactly 0.30; 1500 times 0.10 makes exactly 150.00 (a floating-point computation would drift); whole amounts,
+// amounts with one decimal or very large ones are read correctly. The last two cases reuse, without repeating it, the `indicators: false` state set on the first call.
 appTest("sans indicateurs : précision décimale (0,1 + 0,2 = 0,30 exact)", async (app) => {
   const html = await page(app, { indicators: false, entries: withAmounts(["0.10", "0.20", "-0.10", "-0.20", "-0.20"]) });
   assert.deepEqual(summaryOf(html), [
@@ -127,7 +127,7 @@ appTest("sans indicateurs : précision décimale (0,1 + 0,2 = 0,30 exact)", asyn
   ]);
 });
 
-// Intention : pas de transaction = 0 reçu, 0 sorti, solde 0, sans erreur.
+// Intention: no transaction = 0 received, 0 sent, balance 0, without error.
 appTest("sans indicateurs : plage vide -> 0 reçu, 0 sorti, net 0", async (app) => {
   const html = await page(app, { indicators: false, entries: [] });
   assert.match(html, /Aucune transaction sur cette plage/);
@@ -139,7 +139,7 @@ appTest("sans indicateurs : plage vide -> 0 reçu, 0 sorti, net 0", async (app) 
   ]);
 });
 
-// Intention : une transaction de 0,00 n'est comptée ni comme reçue ni comme sortie ; un solde négatif s'affiche avec son signe.
+// Intention: a 0.00 transaction is counted neither as received nor as sent; a negative balance shows with its sign.
 appTest("sans indicateurs : une transaction à 0 n'est ni reçue ni sortie ; net négatif", async (app) => {
   const html = await page(app, { indicators: false, entries: withAmounts(["0.00", "-3.00"]) });
   assert.deepEqual(summaryOf(html), [
@@ -149,7 +149,7 @@ appTest("sans indicateurs : une transaction à 0 n'est ni reçue ni sortie ; net
   ]);
 });
 
-// Intention : une monnaie sans centimes (decimalDigits 0) s'affiche sans virgule et se calcule en entiers justes.
+// Intention: a currency without cents (decimalDigits 0) displays without a comma and is computed correctly in integers.
 appTest("sans indicateurs : monnaie sans décimale (decimalDigits 0)", async (app) => {
   const html = await page(app, { indicators: false, currency: { name: "Graines", decimalDigits: 0 }, entries: withAmounts(["10", "5", "-4"]) });
   assert.deepEqual(summaryOf(html), [
@@ -159,7 +159,7 @@ appTest("sans indicateurs : monnaie sans décimale (decimalDigits 0)", async (ap
   ]);
 });
 
-// Intention : un montant inexploitable (« abc ») ne doit pas fabriquer un total : les trois lignes disent « Non disponible » mais le détail reste affiché.
+// Intention: an unusable amount ("abc") must not produce a total: the three lines say "Non disponible" but the detail is still displayed.
 appTest("sans indicateurs : montant illisible -> 'Non disponible', jamais inventé, détail conservé", async (app) => {
   const html = await page(app, { indicators: false, entries: withAmounts(["1.00", "abc"]) });
   assert.deepEqual(summaryOf(html).map(([, v]) => v), [NA, NA, NA]);
@@ -168,7 +168,7 @@ appTest("sans indicateurs : montant illisible -> 'Non disponible', jamais invent
 
 // ------------------------------------------------------------- truncated list
 
-// Cas limite : 2000 lignes = liste complète, donc on peut calculer les totaux, sans avertissement.
+// Edge case: 2000 lines = complete list, so the totals can be computed, without a warning.
 appTest("sans indicateurs : exactement 2000 lignes -> totaux calculés, pas d'avertissement", async (app) => {
   const html = await page(app, { indicators: false, entries: withAmounts(Array(2000).fill("1.50")) });
   assert.equal(rowsOf(html).length, 2000);
@@ -180,8 +180,8 @@ appTest("sans indicateurs : exactement 2000 lignes -> totaux calculés, pas d'av
   ]);
 });
 
-// Intention : au-delà de 2000, la liste est coupée donc un total calculé serait faux : on affiche « Non disponible » trois fois avec un avertissement clair,
-// et on ne prétend surtout pas que les totaux sont exacts.
+// Intention: beyond 2000, the list is cut so a computed total would be wrong: we show "Non disponible" three times with a clear warning,
+// and above all we do not claim that the totals are exact.
 appTest("sans indicateurs : 2001 lignes -> 'Non disponible' x3, avertissement clair, détail affiché", async (app) => {
   const html = await page(app, { indicators: false, entries: withAmounts(Array(2001).fill("1.50")) });
   assert.equal(rowsOf(html).length, 2000, "le détail reste affiché");
@@ -198,7 +198,7 @@ appTest("sans indicateurs : 2001 lignes -> 'Non disponible' x3, avertissement cl
 
 // ------------------------------------------------------------ page and PDF
 
-// Intention : l'écran et le PDF affichent exactement le même résumé (ils partagent la même fonction `ticketModel`).
+// Intention: the screen and the PDF show exactly the same summary (they share the same `ticketModel` function).
 appTest("sans indicateurs : page et PDF montrent le même résumé (calculé)", async (app) => {
   const state = { indicators: false, entries: history(120) };
   const html = await page(app, state);
@@ -207,7 +207,7 @@ appTest("sans indicateurs : page et PDF montrent le même résumé (calculé)", 
   assert.deepEqual(summary, asPdf(expected));
 });
 
-// Idem pour le cas « liste trop longue » : mêmes « Non disponible » et même avertissement sur l'écran et sur papier.
+// Same for the "list too long" case: same "Non disponible" and same warning on screen and on paper.
 appTest("sans indicateurs : page et PDF montrent le même résumé et le même avertissement (tronqué)", async (app) => {
   const state = { indicators: false, entries: withAmounts(Array(2001).fill("1.50")) };
   const html = await page(app, state);
@@ -220,8 +220,8 @@ appTest("sans indicateurs : page et PDF montrent le même résumé et le même a
 
 // ------------------------------------------------ indicators mode unchanged
 
-// Intention : quand Cyclos fournit ses totaux, l'outil les reprend tels quels, sans recalcul. Le test met des valeurs volontairement différentes
-// des lignes pour prouver qu'on n'a rien recalculé.
+// Intention: when Cyclos provides its totals, the tool takes them as they are, without recomputing. The test uses values deliberately different
+// from the lines to prove that nothing was recomputed.
 appTest("avec indicateurs : les totaux de Cyclos sont repris tels quels (même s'ils diffèrent des lignes)", async (app) => {
   // Values deliberately different from the sum of the lines: the code recomputes nothing.
   const html = await page(app, {
@@ -235,7 +235,7 @@ appTest("avec indicateurs : les totaux de Cyclos sont repris tels quels (même s
   ]);
 });
 
-// Intention : même avec la liste coupée, les totaux de Cyclos restent exacts (calculés par Cyclos sur toute la période) et l'avertissement le précise.
+// Intention: even with the list cut, Cyclos' totals stay exact (computed by Cyclos over the whole period) and the warning says so.
 appTest("avec indicateurs : liste tronquée -> totaux de Cyclos et mention 'restent exacts'", async (app) => {
   const entries = withAmounts(Array(2500).fill("2.00"));
   const html = await page(app, { entries });
@@ -250,7 +250,7 @@ appTest("avec indicateurs : liste tronquée -> totaux de Cyclos et mention 'rest
 
 // --------------------------------------------------------- defensive reading
 
-// Les tests qui suivent sont « unitaires » (sans serveur) : ils appellent directement `ticketModel`. `at` et `base` préparent une période et un relevé vides.
+// The tests that follow are "unit" tests (no server): they call `ticketModel` directly. `at` and `base` prepare an empty period and statement.
 const at = (text) => DateTime.fromFormat(text, "yyyy-MM-dd'T'HH:mm", { zone: "Europe/Paris" });
 const base = {
   from: at("2026-01-10T08:00"),
@@ -261,8 +261,8 @@ const base = {
   currency: { name: "Graines", decimalDigits: 2 },
 };
 
-// Intention : lecture « défensive » : quelle que soit la forme des totaux renvoyés (absents, vides, partiels, illisibles), il n'y a jamais d'exception
-// et le résumé dit « Non disponible ». Sinon une réponse inattendue de Cyclos ferait planter la page du commerçant.
+// Intention: "defensive" reading: whatever the shape of the totals returned (missing, empty, partial, unreadable), there is never an exception
+// and the summary says "Non disponible". Otherwise an unexpected answer from Cyclos would crash the merchant's page.
 test("ticketModel : totaux absents, vides ou incomplets -> pas d'exception, 'Non disponible'", () => {
   const cases = [
     undefined,
@@ -283,14 +283,14 @@ test("ticketModel : totaux absents, vides ou incomplets -> pas d'exception, 'Non
   }
 });
 
-// Intention : sans totaux ET avec une liste coupée, le message d'avertissement dédié est affiché.
+// Intention: with no totals AND a cut list, the dedicated warning message is displayed.
 test("ticketModel : totaux absents et liste tronquée -> avertissement dédié", () => {
   const m = ticketModel({ ...base, totals: { status: {} }, truncated: true });
   assert.match(m.warning, /ne peuvent pas être calculés au-delà de 2000 transactions/);
   assert.deepEqual(m.summary.map((s) => s.label), ["Paiements reçus", "Paiements sortis", "Solde net"]);
 });
 
-// Intention : si Cyclos donne reçus et sortis mais pas le net, le net est calculé en entiers (0,30 - 0,10 = +0,20 exact).
+// Intention: if Cyclos gives received and sent but not the net, the net is computed in integers (0.30 - 0.10 = +0.20 exactly).
 test("ticketModel : indicateurs présents sans netInflow -> net exact en entiers", () => {
   const m = ticketModel({ ...base, totals: { status: { incoming: { count: 2, sum: "0.30" }, outgoing: { count: 1, sum: "0.10" } } } });
   assert.deepEqual(m.summary.map((s) => s.value), ["0,30", "0,10", "+0,20"]);

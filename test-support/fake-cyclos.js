@@ -1,30 +1,29 @@
-// === LIRE EN PREMIER : à quoi sert ce fichier ? ===
-// Ce n'est pas un test : c'est un OUTIL utilisé par les tests.
-// Cyclos est le logiciel qui gère les comptes de la monnaie locale. Notre outil lui parle par une
-// API REST, c'est-à-dire par des requêtes HTTP (une méthode + un chemin, par exemple « GET /self/accounts »)
-// auxquelles Cyclos répond en JSON (un format texte pour des données : { "clé": "valeur" }).
-// Dans les tests, on ne veut JAMAIS parler au vrai Cyclos : il faudrait du réseau, de vrais comptes, et les
-// résultats changeraient d'un jour à l'autre. Ce fichier lance donc un petit serveur HTTP LOCAL qui répond
-// comme Cyclos, avec des données inventées. Il imite seulement les routes que notre outil utilise :
-//   POST   /auth/session                    connexion (identifiant + mot de passe -> jeton de session)
-//   DELETE /auth/session                    déconnexion (le jeton est fermé côté Cyclos)
-//   GET    /users/self                      nom d'affichage du commerçant
-//   GET    /self/accounts                   liste des comptes du commerçant
-//   GET    /self/accounts/membre            totaux (reçus, sortis, solde net) sur une période
-//   GET    /self/accounts/membre/history    transactions, PAGE par PAGE
-// Toute autre route répond 404. Les tests peuvent lui faire simuler : un mauvais mot de passe (401), un
-// refus (403), une panne (500), une connexion coupée (« drop »), un jeton expiré, plusieurs pages de
-// transactions, et la réponse « sans totaux » de la vraie instance. Voir `state` et les fonctions renvoyées
-// tout en bas du fichier.
+// === READ THIS FIRST: what is this file for? ===
+// This is not a test: it is a TOOL used by the tests.
+// Cyclos is the software that manages the local currency accounts. Our tool talks to it through a REST
+// API, that is, through HTTP requests (a method + a path, for example "GET /self/accounts") to which Cyclos
+// answers in JSON (a text format for data: { "key": "value" }).
+// In the tests we NEVER want to talk to the real Cyclos: it would need a network, real accounts, and the
+// results would change from one day to the next. This file therefore starts a small LOCAL HTTP server that
+// answers like Cyclos, with made-up data. It only imitates the routes our tool uses:
+//   POST   /auth/session                    login (login + password -> session token)
+//   DELETE /auth/session                    logout (the token is closed on the Cyclos side)
+//   GET    /users/self                      display name of the merchant
+//   GET    /self/accounts                   list of the merchant's accounts
+//   GET    /self/accounts/membre            totals (received, sent, net balance) over a period
+//   GET    /self/accounts/membre/history    transactions, PAGE by page
+// Any other route answers 404. The tests can make it simulate: a wrong password (401), a refusal (403),
+// an outage (500), a cut connection ("drop"), an expired token, several pages of transactions, and the
+// "no totals" answer of the real instance. See `state` and the functions returned at the very bottom of the file.
 // Fake Cyclos for the tests: a small local HTTP server that imitates the
 // endpoints used by the server. No external network, fictitious credentials.
 import http from "node:http";
 
-// Identifiants FICTIFS du commerçant de test. Aucun vrai mot de passe n'est utilisé dans ce projet.
+// FICTITIOUS credentials of the test merchant. No real password is used anywhere in this project.
 export const USER = { login: "commercant", password: "motdepasse-de-test", display: "Boutique de Test" };
 
-// Fabrique une transaction fictive. `n` sert à la rendre unique et à l'ordonner dans le temps
-// (la n-ième est n minutes après la précédente) ; le montant par défaut est 10.00.
+// Builds a fictitious transaction. `n` makes it unique and orders it in time (the n-th one is n minutes
+// after the previous one); the default amount is 10.00.
 // Builds a history line in Cyclos' format (negative amount = outgoing payment).
 export function entry(n, { amount = "10.00", date, description, who = "Client" } = {}) {
   const base = Date.parse("2026-01-10T08:00:00Z") + n * 60_000;
@@ -37,12 +36,12 @@ export function entry(n, { amount = "10.00", date, description, who = "Client" }
   };
 }
 
-// Démarre le faux Cyclos et renvoie de quoi le piloter : son adresse (`url`), son état (`state`)
-// et quelques fonctions (`force`, `expireTokens`, `calls`, `close`). `async` : la fonction attend (`await`)
-// que le serveur soit prêt avant de rendre la main ; voir test/statique.test.js pour l'explication d'async/await.
+// Starts the fake Cyclos and returns what is needed to drive it: its address (`url`), its state (`state`)
+// and a few functions (`force`, `expireTokens`, `calls`, `close`). `async`: the function waits (`await`) for the
+// server to be ready before handing back; see test/statique.test.js for an explanation of async/await.
 export async function startFakeCyclos() {
-  // `state` est la mémoire du faux Cyclos. Les tests la MODIFIENT avant d'agir pour fabriquer la situation
-  // voulue (par exemple `app.cyclos.state.entries = [...]` pour choisir les transactions renvoyées).
+  // `state` is the memory of the fake Cyclos. Tests MODIFY it before acting to build the wanted situation
+  // (for example `app.cyclos.state.entries = [...]` to choose the transactions that are returned).
   const state = {
     requests: [], // { method, path, headers, query } of each call received
     tokens: new Set(),
@@ -66,8 +65,8 @@ export async function startFakeCyclos() {
     res.end(JSON.stringify(body));
   }
 
-  // Chaque requête reçue passe ici. On la note dans `state.requests` : les tests pourront ainsi vérifier
-  // ce que NOTRE serveur a envoyé à Cyclos (quels appels, avec quels en-têtes). `key` ressemble à « GET /self/accounts ».
+  // Every request received goes through here. It is recorded in `state.requests`: tests can then check what OUR
+  // server sent to Cyclos (which calls, with which headers). `key` looks like "GET /self/accounts".
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://fake");
     const path = url.pathname.replace(/^\/api/, "");
@@ -80,17 +79,17 @@ export async function startFakeCyclos() {
     });
     req.resume();
 
-    // Situation forcée : si un test a demandé « cette route doit échouer », on répond tout de suite avec ce
-    // statut (401, 403, 500...) sans regarder le reste. « drop » coupe la connexion : le client reçoit une erreur réseau.
+    // Forced situation: if a test asked "this route must fail", we answer right away with that status
+    // (401, 403, 500...) without looking at anything else. "drop" cuts the connection: the client gets a network error.
     const forced = state.forced.get(key);
     if (forced) {
       if (forced === "drop") return req.socket.destroy();
       return json(res, forced, { code: forced === 401 ? "loggedOut" : forced === 403 ? "forbidden" : "unknownError" });
     }
 
-    // Connexion. L'en-tête HTTP `Authorization: Basic xxx` contient « identifiant:motdepasse » encodé en base64
-    // (un simple codage, pas du chiffrement). On le décode (`Buffer` : voir test/statique.test.js) et on compare à USER.
-    // Si c'est bon, on invente un jeton de session (« jeton-1 », « jeton-2 »...) ; sinon 401 (non authentifié).
+    // Login. The HTTP header `Authorization: Basic xxx` holds "login:password" encoded in base64 (a mere encoding,
+    // not encryption). We decode it (`Buffer`: see test/statique.test.js) and compare it with USER. If it matches, we invent
+    // a session token ("jeton-1", "jeton-2"...); otherwise 401 (not authenticated).
     if (key === "POST /auth/session") {
       const [scheme, encoded] = (req.headers.authorization ?? "").split(" ");
       const [login, ...rest] = Buffer.from(encoded ?? "", "base64").toString("utf-8").split(":");
@@ -102,8 +101,8 @@ export async function startFakeCyclos() {
       return json(res, 200, { sessionToken: token, user: { display: USER.display }, permissions: ["secret"] });
     }
 
-    // Après la connexion, notre outil n'envoie plus le mot de passe : il envoie le jeton dans l'en-tête `Session-Token`.
-    // Un jeton inconnu (ou expiré) est refusé avec 401, comme le ferait le vrai Cyclos.
+    // After login, our tool no longer sends the password: it sends the token in the `Session-Token` header.
+    // An unknown (or expired) token is refused with 401, as the real Cyclos would do.
     const token = req.headers["session-token"];
     if (!state.tokens.has(token)) return json(res, 401, { code: "loggedOut" });
 
@@ -118,8 +117,8 @@ export async function startFakeCyclos() {
       if (state.accountsBody !== undefined) return json(res, 200, state.accountsBody);
       return json(res, 200, [{ type: { internalName: "membre" }, currency: state.currency }]);
     }
-    // Totaux de la période. « membre » est le type du compte fictif. Avec `state.indicators = false`, on imite la vraie
-    // instance, qui ne renvoie pas les totaux reçus/sortis : c'est alors à notre outil de les calculer (voir test/totaux-calcules.test.js).
+    // Totals of the period. "membre" is the type of the fictitious account. With `state.indicators = false` we imitate the real
+    // instance, which does not return the received/sent totals: our tool must then compute them (see test/totaux-calcules.test.js).
     if (key === "GET /self/accounts/membre") {
       if (!state.indicators) {
         return json(res, 200, {
@@ -146,8 +145,8 @@ export async function startFakeCyclos() {
         },
       });
     }
-    // Historique PAGINÉ : au lieu de tout renvoyer d'un coup, Cyclos découpe en pages. Le client demande `page` (0, 1, 2...)
-    // et `pageSize` (lignes par page) ; l'en-tête `X-Has-Next-Page: true` dit s'il reste une page à lire.
+    // PAGINATED history: instead of returning everything at once, Cyclos splits it into pages. The client asks for `page` (0, 1, 2...)
+    // and `pageSize` (lines per page); the `X-Has-Next-Page: true` header says whether another page remains to be read.
     if (key === "GET /self/accounts/membre/history") {
       const page = Number(url.searchParams.get("page") ?? 0);
       const size = state.pageSize ?? Number(url.searchParams.get("pageSize") ?? 40);
@@ -160,7 +159,7 @@ export async function startFakeCyclos() {
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
-    // Ce que les tests reçoivent pour piloter le faux Cyclos :
+    // What the tests receive to drive the fake Cyclos:
     url: `http://127.0.0.1:${server.address().port}/api`,
     state,
     // Every token becomes invalid (token expired on the Cyclos side).
