@@ -1,5 +1,6 @@
 // Démarre le vrai serveur (port aléatoire) face à un faux Cyclos, et fournit
 // un petit client HTTP qui garde le cookie de session.
+import { test, mock } from "node:test";
 import { startServer } from "../server.js";
 import { startFakeCyclos, USER } from "./fake-cyclos.js";
 
@@ -75,4 +76,37 @@ export async function setup(options = {}) {
       await cyclos.close();
     },
   };
+}
+
+// Attend (jusqu'à 2 s) qu'une condition devienne vraie, par exemple l'arrivée
+// d'un appel sans réponse attendue (fermeture du jeton Cyclos).
+export async function until(condition, what = "condition") {
+  for (let i = 0; i < 100; i += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Délai dépassé : ${what}`);
+}
+
+// Un test avec son propre serveur et son propre faux Cyclos (port aléatoire),
+// arrêtés à la fin. `app.logs` contient tout ce que le serveur a écrit avec
+// console.* pendant le test (qui n'apparaît donc pas dans la sortie).
+export function appTest(name, optionsOrFn, maybeFn) {
+  const options = typeof optionsOrFn === "function" ? {} : optionsOrFn;
+  const fn = typeof optionsOrFn === "function" ? optionsOrFn : maybeFn;
+  test(name, async () => {
+    const logs = [];
+    for (const level of ["log", "info", "warn", "error"]) {
+      mock.method(console, level, (...args) => logs.push(args.map(String).join(" ")));
+    }
+    const app = await setup(options);
+    app.logs = logs;
+    try {
+      await fn(app);
+    } finally {
+      mock.timers.reset();
+      mock.restoreAll();
+      await app.close();
+    }
+  });
 }
