@@ -1,6 +1,6 @@
 node_modules/
 
-# Environment files (the server does not read them; see .env.example)
+# Environment files (read by `npm start` only; copy .env.example to .env)
 .env
 .env.*
 !.env.example

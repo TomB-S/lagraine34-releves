@@ -30,7 +30,7 @@ Deux dépendances seulement : `luxon` (dates) et `pdfkit` (PDF, version exacte).
 npm start
 ```
 
-(équivalent de `node server.js`). Puis ouvrir <http://localhost:3000>. Sans configuration, l'outil interroge la
+(équivalent de `node server.js`, avec en plus la lecture de `.env` s'il existe). Puis ouvrir <http://localhost:3000>. Sans configuration, l'outil interroge la
 démo publique de Cyclos (`https://demo.cyclos.org/api`) ; pour un usage réel,
 renseigner `CYCLOS_BASE_URL`.
 
@@ -38,16 +38,25 @@ renseigner `CYCLOS_BASE_URL`.
 CYCLOS_BASE_URL=https://cyclos.example.org/api PORT=8080 npm start
 ```
 
-Le serveur **ne lit aucun fichier `.env`** : les variables se placent devant la
-commande (comme ci-dessus) ou s'exportent dans le shell (`export NOM=valeur`).
-[.env.example](.env.example) liste tous les noms avec des valeurs d'exemple,
-à titre de mémo seulement.
+Les variables peuvent aussi se mettre dans un fichier `.env` à la racine du
+projet (copier [.env.example](.env.example) en `.env` et l'adapter) :
+
+- `npm start` lit `.env` s'il existe (option `--env-file-if-exists` de Node,
+  disponible depuis Node 22.9). Sans fichier, rien ne change.
+- `node server.js` seul **ne lit pas** `.env` : le serveur lui-même ne lit
+  jamais de fichier, il lit uniquement les variables d'environnement. `npm test`
+  non plus.
+- Une variable placée devant la commande (ou exportée dans le shell) l'emporte
+  sur la même variable du fichier, même si elle est vide : `PORT=8080 npm start`
+  écoute sur 8080 quelle que soit la ligne `PORT` de `.env`.
+- `.env` est ignoré par git (voir `.gitignore`) : il ne doit jamais être
+  commité. Seul `.env.example`, sans valeur sensible, est versionné.
 
 ## Scripts
 
 | Commande | Effet |
 | --- | --- |
-| `npm start` | Démarre le serveur (`node server.js`) |
+| `npm start` | Démarre le serveur (`node --env-file-if-exists=.env server.js`) : lit `.env` s'il existe |
 | `npm test` | Lance les tests (`node --test`) |
 
 ## Arborescence
@@ -60,7 +69,7 @@ logo-lagraine34.png  logo, servi sur /logo.png et inséré dans le PDF
 fonts/               polices Roboto et Voltaire (woff2) et leurs licences
 test/                tests (node:test), un fichier par thème
 test-support/        faux Cyclos, harnais de test, lecteur de texte PDF
-.env.example         mémo des variables d'environnement (non lu par le serveur)
+.env.example         modèle du fichier `.env` (à copier en `.env`, lu ensuite par `npm start`)
 ```
 
 ## Variables d'environnement
