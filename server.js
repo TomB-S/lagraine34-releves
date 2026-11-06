@@ -131,10 +131,42 @@ async function closeCyclosSession(sessionToken) {
 // Format of <input type="datetime-local"> values (no seconds, no zone).
 const INPUT_FORMAT = "yyyy-MM-dd'T'HH:mm";
 
-// The stylesheet is a static file read once at startup and served on /style.css
-// (the CSP forbids inline styles, so every page links to it).
-const STYLE_CSS = readFileSync(new URL("./style.css", import.meta.url));
-const STYLE_ETAG = `"${createHash("sha256").update(STYLE_CSS).digest("hex").slice(0, 16)}"`;
+// Static files, read once at startup and served on fixed routes (the CSP
+// forbids inline styles, so every page links to /style.css; the logo and the
+// fonts are served by us too, no external domain). Public and cacheable,
+// unlike the pages (no-store by default), with ETag revalidation (304).
+function staticAsset(file, contentType) {
+  const body = readFileSync(new URL(file, import.meta.url));
+  const etag = `"${createHash("sha256").update(body).digest("hex").slice(0, 16)}"`;
+  return { body, contentType, etag };
+}
+
+const STATIC_ASSETS = new Map([
+  ["GET /style.css", staticAsset("./style.css", "text/css; charset=utf-8")],
+  ["GET /logo.png", staticAsset("./logo-lagraine34.png", "image/png")],
+  ...[
+    "roboto-latin-400-normal",
+    "roboto-latin-700-normal",
+    "voltaire-latin-400-normal",
+  ].map((name) => [
+    `GET /fonts/${name}.woff2`,
+    staticAsset(`./fonts/${name}.woff2`, "font/woff2"),
+  ]),
+]);
+
+function serveStatic(req, res, asset) {
+  const headers = {
+    "Cache-Control": "public, max-age=3600",
+    ETag: asset.etag,
+  };
+  if (req.headers["if-none-match"] === asset.etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(200, { "Content-Type": asset.contentType, ...headers });
+  res.end(asset.body);
+}
 
 // Default and preset ranges for the filter form, in ZONE wall-clock time.
 // An unknown preset is ignored (same as no preset: today so far).
@@ -713,7 +745,7 @@ const server = http.createServer(async (req, res) => {
   // headers with these.
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
   );
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -731,6 +763,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    const asset = STATIC_ASSETS.get(route);
+    if (asset) {
+      serveStatic(req, res, asset);
+      return;
+    }
+
     switch (route) {
       case "GET /":
         send(res, 200, "text/html", renderLoginForm());
@@ -794,21 +832,6 @@ const server = http.createServer(async (req, res) => {
         redirect(res, "/filtres", {
           "Set-Cookie": cookieHeader(id, Math.floor(MAX_MS / 1000)),
         });
-        return;
-      }
-
-      case "GET /style.css": {
-        // Public and static: cacheable, unlike the pages (no-store by default).
-        const headers = {
-          "Cache-Control": "public, max-age=3600",
-          ETag: STYLE_ETAG,
-        };
-        if (req.headers["if-none-match"] === STYLE_ETAG) {
-          res.writeHead(304, headers);
-          res.end();
-          return;
-        }
-        send(res, 200, "text/css", STYLE_CSS, headers);
         return;
       }
 
