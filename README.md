@@ -68,7 +68,7 @@ test-support/        faux Cyclos, harnais de test, lecteur de texte PDF
 | Nom | Rôle | Valeur par défaut |
 | --- | --- | --- |
 | `CYCLOS_BASE_URL` | Adresse de l'API Cyclos (avec `/api`) | `https://demo.cyclos.org/api` |
-| `CYCLOS_CHANNEL` | Canal Cyclos, envoyé dans l'en-tête `Channel` sur tous les appels (connexion, historique, totaux, déconnexion). Lettres, chiffres, `-` et `_`, 32 caractères au maximum, sinon le serveur refuse de démarrer. `main` est le canal de l'interface officielle ; le canal prévu pour les outils externes devra être confirmé avec Cyclos. | aucun (en-tête non envoyé) ; au démarrage, le journal indique `Canal Cyclos : <canal>` ou `(par defaut)` |
+| `CYCLOS_CHANNEL` | Canal Cyclos, envoyé dans l'en-tête `Channel` sur tous les appels (connexion, historique, totaux, déconnexion). Lettres, chiffres, `-` et `_`, 32 caractères au maximum, sinon le serveur refuse de démarrer. `main` est le canal de l'interface officielle ; le canal prévu pour les outils externes devra être confirmé avec Cylaos. | aucun (en-tête non envoyé) ; au démarrage, le journal indique `Canal Cyclos : <canal>` ou `(par defaut)` |
 | `PORT` | Port d'écoute | `3000` |
 | `SESSION_IDLE_MINUTES` | Inactivité après laquelle la session se ferme | `20` |
 | `SESSION_MAX_HOURS` | Durée maximale d'une session, activité ou non | `8` |
@@ -126,15 +126,15 @@ externe, aucun vrai identifiant (les identifiants des tests sont fictifs).
 - **Adresse IP derrière un proxy** : le compteur d'échecs de connexion utilise
   l'adresse du pair TCP. Derrière un proxy inverse, tous les utilisateurs
   partagent donc le même compteur (5 échecs bloquent tout le monde).
-- **Compte professionnel et canal `main`** : selon la configuration de Cyclos,
-  un compte professionnel, ou le canal `main` (celui de l'interface
-  officielle), peut ne pas avoir le droit de lire ses comptes par l'API.
-  Cyclos répond alors 403 (ou une liste de comptes vide) à
-  `GET /self/accounts` et l'outil affiche « Accès aux comptes refusé »,
-  la session restant ouverte ; la ligne correspondante est écrite dans le
-  journal du serveur. Le canal à utiliser pour cet outil
-  (`CYCLOS_CHANNEL`) reste à confirmer avec Cyclos ; tant que ce n'est pas fait,
-  cette limite n'est pas levée.
+- **Compte professionnel et canal `main`** : avec un compte professionnel,
+  l'API ne renvoie ses comptes que si l'en-tête `Channel: main` est envoyé
+  (variable `CYCLOS_CHANNEL=main`), le canal de l'interface officielle de
+  Cyclos. Sans lui, Cyclos répond 403 sur `GET /self/accounts` et 404 sur le
+  compte. Constaté le 6 novembre 2026 avec un compte pro de test. Un compte de
+  type particulier fonctionne avec ou sans cet en-tête. La cause exacte
+  (droits du groupe des professionnels réglés par canal) n'est pas confirmée
+  par l'administration de Cyclos. Le canal prévu pour un outil externe reste à
+  confirmer avec Cylaos.
 - **Sessions perdues au redémarrage** : sessions et compteurs sont en mémoire ;
   redémarrer le serveur déconnecte tout le monde (les jetons Cyclos restent
   valides jusqu'à leur expiration côté Cyclos).
