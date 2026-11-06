@@ -1,4 +1,11 @@
+import { readFileSync } from "node:fs";
 import PDFDocument from "pdfkit";
+
+// Logo of La Graine 34, read once at startup (same file as GET /logo.png).
+// pdfkit embeds a PNG directly; drawn on the first page only, 104 x 40 pt.
+const LOGO = readFileSync(new URL("./logo-lagraine34.png", import.meta.url));
+const LOGO_WIDTH = 104;
+const LOGO_HEIGHT = 40; // 200 x 77 px at that width, rounded
 
 // pdfkit's built-in Helvetica only has the WinAnsi (Windows-1252) characters:
 // Latin accents and French punctuation are fine, but anything else (other
@@ -80,8 +87,10 @@ function bottomLimit(doc) {
 function draw(doc, model) {
   const left = PAGE_MARGINS.left;
 
+  doc.image(LOGO, left, PAGE_MARGINS.top, { width: LOGO_WIDTH, height: LOGO_HEIGHT });
+
   doc.fillColor("#000000").font("Helvetica-Bold").fontSize(18);
-  doc.text(pdfText(model.title), left, PAGE_MARGINS.top);
+  doc.text(pdfText(model.title), left, PAGE_MARGINS.top + LOGO_HEIGHT + 12);
   doc.moveDown(0.4);
 
   if (model.merchantName) {
