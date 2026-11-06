@@ -27,6 +27,7 @@ export async function startFakeCyclos() {
     // false : reproduit la vraie instance, qui répond sans incoming, outgoing
     // ni netInflow (seulement les soldes et les limites de crédit).
     indicators: true,
+    accountsBody: undefined, // si défini, remplace la réponse de GET /self/accounts
     displayName: USER.display,
     // Réponses forcées : "METHOD /chemin" -> statut (ex. "GET /self/accounts": 403).
     forced: new Map(),
@@ -54,7 +55,7 @@ export async function startFakeCyclos() {
     const forced = state.forced.get(key);
     if (forced) {
       if (forced === "drop") return req.socket.destroy();
-      return json(res, forced, { code: forced === 401 ? "loggedOut" : "forbidden" });
+      return json(res, forced, { code: forced === 401 ? "loggedOut" : forced === 403 ? "forbidden" : "unknownError" });
     }
 
     if (key === "POST /auth/session") {
@@ -79,6 +80,7 @@ export async function startFakeCyclos() {
     }
     if (key === "GET /users/self") return json(res, 200, { display: state.displayName });
     if (key === "GET /self/accounts") {
+      if (state.accountsBody !== undefined) return json(res, 200, state.accountsBody);
       return json(res, 200, [{ type: { internalName: "membre" }, currency: state.currency }]);
     }
     if (key === "GET /self/accounts/membre") {
