@@ -7,6 +7,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { DateTime } from "luxon";
+import { renderTicketPdf } from "./ticket-pdf.js";
 
 const BASE = "https://demo.cyclos.org/api";
 const ZONE = "Europe/Paris";
@@ -533,6 +534,14 @@ async function loadStatement(req, res, { id, session }) {
   }
 }
 
+// Download name built only from the validated dates (digits, "-", "_"):
+// ticket-2026-11-05_0357_2026-11-05_2359.pdf
+function pdfFilename({ from, to }) {
+  const stamp = (date) =>
+    date.setLocale("en").toFormat("yyyy-MM-dd_HHmm");
+  return `ticket-${stamp(from)}_${stamp(to)}.pdf`;
+}
+
 function send(res, status, contentType, body, headers = {}) {
   res.writeHead(status, {
     "Content-Type": `${contentType}; charset=utf-8`,
@@ -787,6 +796,36 @@ const server = http.createServer(async (req, res) => {
           "text/html",
           renderStatement(statement, session.session.csrfToken),
         );
+        return;
+      }
+
+      case "POST /releve.pdf": {
+        const session = getSession(req);
+        if (!session) {
+          redirect(res, "/");
+          return;
+        }
+        // Same protections as POST /releve; the data is read again from Cyclos.
+        const statement = await loadStatement(req, res, session);
+        if (!statement) return;
+
+        // The whole PDF is built before any header is sent: a failure here
+        // ends in the normal error handling below, not in a half-sent file.
+        let pdf;
+        try {
+          pdf = await renderTicketPdf({ title: "Ticket de fin de service" });
+        } catch (error) {
+          console.error(error);
+          send(res, 500, "text/plain", "Impossible de générer le PDF");
+          return;
+        }
+        res.writeHead(200, {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${pdfFilename(statement)}"`,
+          "Content-Length": pdf.length,
+          "Cache-Control": "no-store",
+        });
+        res.end(pdf);
         return;
       }
 
