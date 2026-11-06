@@ -22,8 +22,11 @@ export function pdfPages(buffer) {
   return pages.map(textOf);
 }
 
+// Polices standard de pdfkit : un octet par caractère, en Windows-1252 (€, –, « »...).
+const WIN_1252 = new TextDecoder("windows-1252");
+
 function decode(hex) {
-  return Buffer.from(hex, "hex").toString("latin1");
+  return WIN_1252.decode(Buffer.from(hex, "hex"));
 }
 
 function textOf(content) {
