@@ -105,6 +105,16 @@ externe, aucun vrai identifiant (les identifiants des tests sont fictifs).
   valides jusqu'à leur expiration côté Cyclos).
 - **Instance unique** : pas de partage d'état entre plusieurs processus ni
   plusieurs serveurs ; ne pas répartir la charge sur plusieurs instances.
+- **Totaux du résumé calculés par le code** : sur la vraie instance, Cyclos
+  répond à `GET /self/accounts/{type}?datePeriod=…` sans `incoming`,
+  `outgoing` ni `netInflow`. Quand ils manquent, le serveur calcule les
+  totaux à partir des transactions lues (reçus = montants positifs, sortis =
+  valeur absolue des négatifs, net = différence), en entiers (pas de
+  flottants). Ce calcul n'est fait que si la liste est complète : au-delà de
+  2000 transactions (`HISTORY_MAX_ROWS`), les trois lignes du résumé
+  affichent « Non disponible », avec un avertissement (page et PDF) ; il faut
+  alors réduire la plage. Quand Cyclos fournit les indicateurs, ils sont
+  repris tels quels, sans recalcul.
 - **PDF en Helvetica** : seules les lettres latines de Windows-1252 (accents
   français, €, guillemets…) sont imprimées ; tout autre caractère (alphabets
   non latins, emoji) devient `?` dans le PDF. La page à l'écran les affiche.
