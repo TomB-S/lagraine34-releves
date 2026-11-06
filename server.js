@@ -82,6 +82,23 @@ function recordLoginFailure(ip, now = Date.now()) {
   }
 }
 
+// One terminal line for a non-2xx Cyclos answer, so that a refusal can be
+// diagnosed: method, path (query string dropped: it only holds dates), HTTP
+// status and the `code` field of Cyclos' error when it has a plain shape.
+// Never the credentials, the token, amounts or the body itself.
+async function logCyclosFailure(method, path, response) {
+  let code = "";
+  try {
+    const body = await response.json();
+    if (typeof body?.code === "string" && /^[A-Za-z0-9_.-]{1,60}$/.test(body.code)) {
+      code = ` code=${body.code}`;
+    }
+  } catch {
+    // No JSON body: the status alone is logged.
+  }
+  console.error(`Cyclos ${method} ${path.split("?")[0]} -> ${response.status}${code}`);
+}
+
 // Authenticated Cyclos call: the Cyclos session token replaces the password.
 async function api(path, sessionToken, options = {}) {
   const response = await fetch(`${BASE}${path}`, {
@@ -89,6 +106,9 @@ async function api(path, sessionToken, options = {}) {
     headers: { "Session-Token": sessionToken },
   });
 
+  if (!response.ok) {
+    await logCyclosFailure(options.method ?? "GET", path, response);
+  }
   if (response.status === 401) {
     throw new LoginError(`401 on ${path}`);
   }
@@ -112,6 +132,7 @@ async function createCyclosSession(login, password) {
     headers: { Authorization: `Basic ${basic}` },
   });
 
+  if (!response.ok) await logCyclosFailure("POST", "/auth/session", response);
   if (response.status === 401) {
     throw new LoginError("401 on /auth/session");
   }
