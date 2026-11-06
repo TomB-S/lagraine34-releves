@@ -1,18 +1,27 @@
 import http from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import {
   createHash,
   randomBytes,
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { DateTime } from "luxon";
 import { renderTicketPdf } from "./ticket-pdf.js";
 
-const BASE = "https://demo.cyclos.org/api";
+// Cyclos API address. CYCLOS_BASE_URL overrides the public demo (default),
+// startServer() can override it again (tests).
+const DEFAULT_BASE = "https://demo.cyclos.org/api";
+let BASE = baseUrl(process.env.CYCLOS_BASE_URL);
 const ZONE = "Europe/Paris";
 const PORT = envNumber("PORT", 3000);
 const COOKIE = "session";
+
+// Cyclos base URL without trailing slash; empty or missing -> the demo.
+function baseUrl(value) {
+  return (value || DEFAULT_BASE).replace(/\/+$/, "");
+}
 
 // Reads a positive number from the environment, falls back to the default
 // when the variable is missing or invalid.
@@ -22,11 +31,11 @@ function envNumber(name, fallback) {
 }
 
 // Session limits: inactivity delay and absolute maximum hour.
-const IDLE_MS = envNumber("SESSION_IDLE_MINUTES", 20) * 60_000;
-const MAX_MS = envNumber("SESSION_MAX_HOURS", 8) * 3_600_000;
+let IDLE_MS = envNumber("SESSION_IDLE_MINUTES", 20) * 60_000;
+let MAX_MS = envNumber("SESSION_MAX_HOURS", 8) * 3_600_000;
 // Secure cookies only make sense over HTTPS, so this is opt-in (localhost is HTTP).
-const COOKIE_SECURE = process.env.COOKIE_SECURE === "true";
-const SWEEP_INTERVAL_MS = 60_000;
+let COOKIE_SECURE = process.env.COOKIE_SECURE === "true";
+let SWEEP_INTERVAL_MS = 60_000;
 // Largest accepted POST body.
 const MAX_BODY_BYTES = 10_000;
 // Login throttling: after LOGIN_MAX_FAILURES failures within LOGIN_WINDOW_MS
@@ -735,22 +744,22 @@ function getSession(req) {
   return { id, session };
 }
 
-// Periodic cleanup of expired sessions and of old login-failure counters.
-setInterval(() => {
-  const now = Date.now();
+// Cleanup of expired sessions and of old login-failure counters, run
+// periodically by startServer() (and callable directly, tests do).
+function sweep(now = Date.now()) {
   for (const [id, session] of sessions) {
     if (isExpired(session, now)) expireSession(id, session);
   }
   for (const [ip, entry] of loginFailures) {
     if (now - entry.windowStart >= LOGIN_WINDOW_MS) loginFailures.delete(ip);
   }
-}, SWEEP_INTERVAL_MS).unref();
+}
 
 function cookieHeader(value, maxAgeSeconds) {
   return `${COOKIE}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}${COOKIE_SECURE ? "; Secure" : ""}`;
 }
 
-const clearCookie = cookieHeader("", 0);
+let clearCookie = cookieHeader("", 0);
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -973,6 +982,60 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Serveur démarré sur http://localhost:${PORT}`);
-});
+// Starts the server and resolves with { port, close, sweep }. Nothing starts
+// on import. State (sessions, login failures) is per process: one server at a
+// time, and it starts empty. `options` (all optional) are meant for tests:
+// port (0 = any free port), host, cyclosBaseUrl, cookieSecure, idleMs, maxMs,
+// sweepIntervalMs. Defaults are the environment variables.
+export function startServer(options = {}) {
+  if (server.listening) {
+    return Promise.reject(new Error("Le serveur est déjà démarré"));
+  }
+  BASE = baseUrl(options.cyclosBaseUrl ?? process.env.CYCLOS_BASE_URL);
+  COOKIE_SECURE = options.cookieSecure ?? process.env.COOKIE_SECURE === "true";
+  IDLE_MS = options.idleMs ?? envNumber("SESSION_IDLE_MINUTES", 20) * 60_000;
+  MAX_MS = options.maxMs ?? envNumber("SESSION_MAX_HOURS", 8) * 3_600_000;
+  SWEEP_INTERVAL_MS = options.sweepIntervalMs ?? 60_000;
+  clearCookie = cookieHeader("", 0);
+  sessions.clear();
+  loginFailures.clear();
+
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(options.port ?? PORT, options.host, () => {
+      server.off("error", reject);
+      const timer = setInterval(sweep, SWEEP_INTERVAL_MS);
+      timer.unref();
+      resolve({
+        port: server.address().port,
+        sweep,
+        close() {
+          clearInterval(timer);
+          return new Promise((done) => {
+            server.close(() => done());
+            server.closeAllConnections();
+          });
+        },
+      });
+    });
+  });
+}
+
+// Pure functions exported for the unit tests.
+export {
+  escapeHtml,
+  formatAmount,
+  parseRange,
+  pdfFilename,
+  presetRange,
+  ticketModel,
+};
+
+// "node server.js" starts the server as before; importing the file does not.
+if (
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+) {
+  const { port } = await startServer();
+  console.log(`Serveur démarré sur http://localhost:${port}`);
+}
