@@ -535,9 +535,21 @@ function ticketModel({
   currency,
 }) {
   const digits = currency?.decimalDigits ?? 2;
-  const { incoming, outgoing, netInflow } = totals.status;
-  const net =
-    netInflow ?? (Number(incoming.sum) - Number(outgoing.sum)).toFixed(digits);
+  // Read defensively: the indicators may be missing (see fetchStatement). They
+  // are only usable when both sums are exact decimals; otherwise the three
+  // summary lines say "Non disponible" rather than showing an invented number.
+  const status = totals?.status;
+  const incoming = status?.incoming;
+  const outgoing = status?.outgoing;
+  const inUnits = toUnits(incoming?.sum, digits);
+  const outUnits = toUnits(outgoing?.sum, digits);
+  const available = inUnits !== null && outUnits !== null;
+  const net = !available
+    ? null
+    : (status.netInflow ?? fromUnits(inUnits - outUnits, digits));
+  const NOT_AVAILABLE = "Non disponible";
+  const countLabel = (stat, one, many, bare) =>
+    Number.isInteger(stat?.count) ? plural(stat.count, one, many) : bare;
 
   // Cyclos answers most recent first; the ticket reads oldest first.
   const ordered = [...entries]
@@ -552,16 +564,18 @@ function ticketModel({
     unit: `Montants en ${currency?.name ?? ""}`,
     summary: [
       {
-        label: plural(incoming.count, "paiement reçu", "paiements reçus"),
-        value: formatAmount(incoming.sum, digits),
+        label: countLabel(incoming, "paiement reçu", "paiements reçus", "Paiements reçus"),
+        value: available ? formatAmount(incoming.sum, digits) : NOT_AVAILABLE,
       },
       {
-        label: plural(outgoing.count, "paiement sorti", "paiements sortis"),
-        value: formatAmount(outgoing.sum, digits),
+        label: countLabel(outgoing, "paiement sorti", "paiements sortis", "Paiements sortis"),
+        value: available ? formatAmount(outgoing.sum, digits) : NOT_AVAILABLE,
       },
       {
         label: "Solde net",
-        value: formatAmount(net, digits, { signed: true }),
+        value: available
+          ? formatAmount(net, digits, { signed: true })
+          : NOT_AVAILABLE,
         net: true,
       },
     ],
@@ -574,8 +588,12 @@ function ticketModel({
       amount: formatAmount(entry.amount, digits, { signed: true }),
     })),
     warning: truncated
-      ? `Attention : la liste est limitée aux ${MAX_ROWS} transactions les plus récentes de la plage, les plus anciennes ne sont pas affichées. Les totaux du résumé restent exacts : ils sont calculés par Cyclos sur toute la plage, pas à partir de cette liste.`
-      : "",
+      ? available
+        ? `Attention : la liste est limitée aux ${MAX_ROWS} transactions les plus récentes de la plage, les plus anciennes ne sont pas affichées. Les totaux du résumé restent exacts : ils sont calculés par Cyclos sur toute la plage, pas à partir de cette liste.`
+        : `Attention : la liste est limitée aux ${MAX_ROWS} transactions les plus récentes de la plage, les plus anciennes ne sont pas affichées. Les totaux du résumé ne peuvent pas être calculés au-delà de ${MAX_ROWS} transactions : ils sont indiqués « Non disponible ». Réduisez la plage pour les obtenir.`
+      : available
+        ? ""
+        : "Attention : les totaux du résumé n'ont pas pu être déterminés (« Non disponible »). Le détail des transactions reste exact.",
     emptyText: "Aucune transaction sur cette plage",
     // Range in the filter form's format, for the PDF download form.
     start: from.toFormat(INPUT_FORMAT),
