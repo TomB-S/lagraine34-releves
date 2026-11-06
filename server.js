@@ -417,7 +417,10 @@ function renderFilters(csrfToken, values, error) {
 
 // Field values for a range computed by the server.
 function rangeValues({ start, end }) {
-  return { start: start.toFormat(INPUT_FORMAT), end: end.toFormat(INPUT_FORMAT) };
+  return {
+    start: start.toFormat(INPUT_FORMAT),
+    end: end.toFormat(INPUT_FORMAT),
+  };
 }
 
 // Formats a Cyclos amount string ("1234.5") the French way ("1 234,50", with a
@@ -428,7 +431,8 @@ function formatAmount(value, digits = 2, { signed = false } = {}) {
   if (!match) return String(value);
   const [, minus, integer, decimals = ""] = match;
   const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202f");
-  const number = digits > 0 ? `${grouped},${decimals.padEnd(digits, "0")}` : grouped;
+  const number =
+    digits > 0 ? `${grouped},${decimals.padEnd(digits, "0")}` : grouped;
   const isZero = /^[0,\u202f]*$/.test(number);
   if (minus && !isZero) return `-${number}`;
   return signed && !isZero ? `+${number}` : number;
@@ -521,7 +525,9 @@ function renderStatement(statement, csrfToken) {
 
   const summary = m.summary
     .map(
-      (line) => `<div${line.net ? ' class="net"' : ""}><dt>${escapeHtml(line.label)}</dt>
+      (
+        line,
+      ) => `<div${line.net ? ' class="net"' : ""}><dt>${escapeHtml(line.label)}</dt>
       <dd>${escapeHtml(line.value)}</dd></div>`,
     )
     .join("\n    ");
@@ -617,8 +623,7 @@ async function loadStatement(req, res, { id, session }) {
 // Download name built only from the validated dates (digits, "-", "_"):
 // ticket-2026-11-05_0357_2026-11-05_2359.pdf
 function pdfFilename({ from, to }) {
-  const stamp = (date) =>
-    date.setLocale("en").toFormat("yyyy-MM-dd_HHmm");
+  const stamp = (date) => date.setLocale("en").toFormat("yyyy-MM-dd_HHmm");
   return `ticket-${stamp(from)}_${stamp(to)}.pdf`;
 }
 
