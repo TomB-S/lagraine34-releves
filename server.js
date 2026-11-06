@@ -14,6 +14,10 @@ import { renderTicketPdf } from "./ticket-pdf.js";
 // startServer() can override it again (tests).
 const DEFAULT_BASE = "https://demo.cyclos.org/api";
 let BASE = baseUrl(process.env.CYCLOS_BASE_URL);
+// Optional Cyclos channel, sent as the `Channel` header on every Cyclos call.
+// Empty = header not sent (Cyclos' default channel for the API).
+// Read and validated by startServer().
+let CHANNEL = "";
 const ZONE = "Europe/Paris";
 const PORT = envNumber("PORT", 3000);
 const COOKIE = "session";
@@ -21,6 +25,19 @@ const COOKIE = "session";
 // Cyclos base URL without trailing slash; empty or missing -> the demo.
 function baseUrl(value) {
   return (value || DEFAULT_BASE).replace(/\/+$/, "");
+}
+
+// Validated channel name: letters, digits, hyphen, underscore, 32 characters
+// at most. Empty or missing -> "" (no header). Anything else throws, so that
+// the server refuses to start rather than send an odd header to Cyclos.
+function channelName(value) {
+  if (value === undefined || value === "") return "";
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(value)) {
+    throw new Error(
+      "CYCLOS_CHANNEL invalide : lettres, chiffres, tiret et soulignement uniquement, 32 caractères au maximum",
+    );
+  }
+  return value;
 }
 
 // Reads a positive number from the environment, falls back to the default
@@ -122,11 +139,16 @@ async function logCyclosFailure(method, path, response) {
   console.error(`Cyclos ${method} ${path.split("?")[0]} -> ${response.status}${code}`);
 }
 
+// `Channel` header for every Cyclos call, or nothing when no channel is set.
+function channelHeader() {
+  return CHANNEL ? { Channel: CHANNEL } : {};
+}
+
 // Authenticated Cyclos call: the Cyclos session token replaces the password.
 async function api(path, sessionToken, options = {}) {
   const response = await cyclosFetch(`${BASE}${path}`, {
     ...options,
-    headers: { "Session-Token": sessionToken },
+    headers: { "Session-Token": sessionToken, ...channelHeader() },
   });
 
   if (!response.ok) {
@@ -154,7 +176,7 @@ async function createCyclosSession(login, password) {
   const basic = Buffer.from(`${login}:${password}`, "utf-8").toString("base64");
   const response = await cyclosFetch(`${BASE}/auth/session`, {
     method: "POST",
-    headers: { Authorization: `Basic ${basic}` },
+    headers: { Authorization: `Basic ${basic}`, ...channelHeader() },
   });
 
   if (!response.ok) await logCyclosFailure("POST", "/auth/session", response);
@@ -1140,10 +1162,15 @@ const server = http.createServer(async (req, res) => {
 // on import. State (sessions, login failures) is per process: one server at a
 // time, and it starts empty. `options` (all optional) are meant for tests:
 // port (0 = any free port), host, cyclosBaseUrl, cookieSecure, idleMs, maxMs,
-// sweepIntervalMs. Defaults are the environment variables.
+// sweepIntervalMs, cyclosChannel. Defaults are the environment variables.
 export function startServer(options = {}) {
   if (server.listening) {
     return Promise.reject(new Error("Le serveur est déjà démarré"));
+  }
+  try {
+    CHANNEL = channelName(options.cyclosChannel ?? process.env.CYCLOS_CHANNEL);
+  } catch (error) {
+    return Promise.reject(error);
   }
   BASE = baseUrl(options.cyclosBaseUrl ?? process.env.CYCLOS_BASE_URL);
   COOKIE_SECURE = options.cookieSecure ?? process.env.COOKIE_SECURE === "true";
@@ -1190,6 +1217,13 @@ if (
   process.argv[1] &&
   realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
 ) {
-  const { port } = await startServer();
+  let port;
+  try {
+    ({ port } = await startServer());
+  } catch (error) {
+    // Configuration error (CYCLOS_CHANNEL...): a clear line, no stack trace.
+    console.error(error.message);
+    process.exit(1);
+  }
   console.log(`Serveur démarré sur http://localhost:${port}`);
 }
