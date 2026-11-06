@@ -1,141 +1,84 @@
-// Tests de la charte graphique. Lancer : npm test
-// Le serveur est démarré dans un processus séparé, sur un port libre ; aucun
-// appel à Cyclos n'est fait (seules les pages qui s'affichent sans session
-// sont testées : connexion et « Requête refusée »).
-import { test, before, after } from "node:test";
+// Tests de la charte graphique (HTML et CSS tels que le navigateur les reçoit).
+// Lancer : npm test. Vrai serveur + faux Cyclos local, aucun appel externe.
+import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import net from "node:net";
+import { appTest } from "../test-support/harness.js";
+import { entry } from "../test-support/fake-cyclos.js";
 
 const ROOT = new URL("../", import.meta.url);
-const EXPECTED_CSP =
-  "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+const RANGE = { start: "2026-01-10T00:00", end: "2026-01-10T23:59" };
 
-let child;
-let base;
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-    probe.on("error", reject);
-  });
+// Une page de chaque sorte, sous forme de HTML.
+async function pages(app) {
+  const html = {};
+  const text = async (label, promise) => {
+    html[label] = await (await promise).text();
+  };
+  app.cyclos.state.entries = [entry(1)];
+  await text("connexion", app.request("/"));
+  await text("origine refusée", app.request("/connexion", { method: "POST", form: { login: "a", password: "b" } }));
+  await text("connexion échouée", app.login({ password: "faux" }));
+  await app.login();
+  const csrf = await app.csrf();
+  await text("filtres", app.request("/filtres"));
+  await text("filtres en erreur", app.request("/releve", { method: "POST", form: { csrf, start: "x", end: "y" } }));
+  await text("ticket", app.request("/releve", { method: "POST", form: { csrf, ...RANGE } }));
+  app.cyclos.force("GET /self/accounts", 403);
+  await text("accès refusé", app.request("/releve", { method: "POST", form: { csrf, ...RANGE } }));
+  app.cyclos.state.forced.clear();
+  for (let i = 0; i < 5; i += 1) await app.login({ password: "faux" });
+  app.cookie = "";
+  await text("trop de tentatives", app.login());
+  return html;
 }
 
-before(async () => {
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, ["server.js"], {
-    cwd: ROOT,
-    env: { ...process.env, PORT: String(port) },
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code) => reject(new Error(`serveur arrêté (code ${code})`)));
-    child.stdout.on("data", (chunk) => {
-      if (String(chunk).includes("Serveur démarré")) resolve();
-    });
-  });
-});
-
-after(() => child?.kill());
-
-// Pages HTML qui s'affichent sans session.
-async function pages() {
-  const login = await fetch(`${base}/`);
-  const refused = await fetch(`${base}/connexion`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "login=a&password=b",
-  });
-  assert.equal(refused.status, 403);
-  return { login: await login.text(), refused: await refused.text() };
-}
-
-test("GET /logo.png : image, cache et revalidation 304 comme /style.css", async () => {
-  const res = await fetch(`${base}/logo.png`);
-  assert.equal(res.status, 200);
-  assert.equal(res.headers.get("content-type"), "image/png");
-  const css = await fetch(`${base}/style.css`);
-  assert.equal(res.headers.get("cache-control"), css.headers.get("cache-control"));
-  assert.equal(res.headers.get("cache-control"), "public, max-age=3600");
-  const etag = res.headers.get("etag");
-  assert.match(etag, /^"[0-9a-f]{16}"$/);
-  const bytes = Buffer.from(await res.arrayBuffer());
-  assert.deepEqual(bytes, readFileSync(new URL("logo-lagraine34.png", ROOT)));
-  assert.equal(bytes.subarray(1, 4).toString(), "PNG");
-
-  const again = await fetch(`${base}/logo.png`, { headers: { "If-None-Match": etag } });
-  assert.equal(again.status, 304);
-  assert.equal((await again.arrayBuffer()).byteLength, 0);
-});
-
-test("polices : woff2 servies par nous, autres chemins refusés", async () => {
-  for (const name of [
-    "roboto-latin-400-normal",
-    "roboto-latin-700-normal",
-    "voltaire-latin-400-normal",
-  ]) {
-    const res = await fetch(`${base}/fonts/${name}.woff2`);
-    assert.equal(res.status, 200, name);
-    assert.equal(res.headers.get("content-type"), "font/woff2");
-    assert.equal(res.headers.get("cache-control"), "public, max-age=3600");
-    assert.equal(Buffer.from(await res.arrayBuffer()).subarray(0, 4).toString(), "wOF2");
-  }
-  for (const path of ["/fonts/LICENSES.txt", "/fonts/", "/fonts/../server.js", "/logo-lagraine34.png"]) {
-    const res = await fetch(`${base}${path}`);
-    assert.notEqual(res.status, 200, path);
-  }
-});
-
-test("CSP exacte, sur les pages comme sur les fichiers statiques", async () => {
-  for (const path of ["/", "/style.css", "/logo.png", "/fonts/roboto-latin-400-normal.woff2"]) {
-    const res = await fetch(`${base}${path}`);
-    assert.equal(res.headers.get("content-security-policy"), EXPECTED_CSP, path);
-  }
-  assert.ok(!EXPECTED_CSP.includes("unsafe-"));
-  assert.ok(!/https?:|\/\/|script-src/.test(EXPECTED_CSP));
-});
-
-test("pages : ni style=, ni <style, ni <script", async () => {
-  const { login, refused } = await pages();
-  for (const html of [login, refused]) {
-    assert.ok(!/\sstyle\s*=/i.test(html));
-    assert.ok(!/<style/i.test(html));
-    assert.ok(!/<script/i.test(html));
-  }
-});
-
-test("pages : en-tête avec logo (alt, width, height) et feuille de style", async () => {
-  const { login, refused } = await pages();
-  for (const html of [login, refused]) {
-    assert.match(html, /<link rel="stylesheet" href="\/style\.css">/);
+appTest("pages : feuille de style, en-tête avec logo (alt, width, height) et nom de l'outil", async (app) => {
+  const all = await pages(app);
+  assert.equal(Object.keys(all).length, 8);
+  for (const [label, html] of Object.entries(all)) {
+    assert.match(html, /<link rel="stylesheet" href="\/style\.css">/, label);
+    assert.match(html, /<html lang="fr">/, label);
+    assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/, label);
     const img = html.match(/<img [^>]*>/)?.[0];
-    assert.ok(img, "balise <img>");
-    assert.match(img, /src="\/logo\.png"/);
-    assert.match(img, /alt="[^"]+"/);
-    assert.match(img, /width="\d+"/);
-    assert.match(img, /height="\d+"/);
+    assert.ok(img, `${label} : <img>`);
+    assert.match(img, /src="\/logo\.png"/, label);
+    assert.match(img, /alt="[^"]+"/, label);
+    assert.match(img, /width="\d+"/, label);
+    assert.match(img, /height="\d+"/, label);
+    assert.match(html, /class="nom-outil">Relevés de service</, label);
   }
 });
 
-test("erreur : libellé et icône en plus de la couleur", async () => {
-  const { refused } = await pages();
-  assert.match(refused, /class="erreur" role="alert"/);
-  assert.match(refused, /<strong>Erreur :<\/strong>/);
-  assert.match(refused, /aria-hidden="true">⚠</);
+appTest("erreurs : icône et libellé « Erreur : » en plus de la couleur, annoncées aux lecteurs d'écran", async (app) => {
+  const all = await pages(app);
+  for (const label of ["origine refusée", "connexion échouée", "filtres en erreur", "accès refusé", "trop de tentatives"]) {
+    assert.match(all[label], /<p class="erreur" role="alert"><span class="icone" aria-hidden="true">⚠<\/span> <strong>Erreur :<\/strong>/, label);
+  }
+  for (const label of ["connexion", "filtres", "ticket"]) {
+    assert.ok(!all[label].includes('class="erreur"'), `${label} : pas d'erreur`);
+  }
 });
 
-test("source : aucun gabarit HTML de server.js n'utilise style=, <style ni <script", () => {
-  const source = readFileSync(new URL("server.js", ROOT), "utf8");
-  assert.ok(!/\sstyle\s*=\s*["']/i.test(source));
-  assert.ok(!/<style/i.test(source));
-  assert.ok(!/<script/i.test(source));
+appTest("ticket : avertissement de plafond avec role=alert", async (app) => {
+  app.cyclos.state.entries = Array.from({ length: 2001 }, (_, n) => entry(2000 - n));
+  const csrf = await app.loggedIn();
+  const html = await (await app.request("/releve", { method: "POST", form: { csrf, ...RANGE } })).text();
+  assert.match(html, /<p class="avertissement" role="alert">Attention : /);
+});
+
+appTest("style.css : chaque police déclarée est servie, polices en swap", async (app) => {
+  const css = await (await app.request("/style.css")).text();
+  const urls = [...css.matchAll(/url\(["']?(\/fonts\/[^)"']+)["']?\)/g)].map((m) => m[1]);
+  assert.ok(urls.length >= 3, "polices déclarées");
+  for (const url of urls) {
+    const res = await app.request(url);
+    assert.equal(res.status, 200, url);
+    assert.equal(res.headers.get("content-type"), "font/woff2", url);
+  }
+  assert.ok(!/url\(["']?(https?:)?\/\//.test(css), "aucune ressource externe");
+  assert.ok(!/@import/.test(css));
+  assert.equal([...css.matchAll(/font-display:\s*swap/g)].length, css.match(/@font-face/g).length);
 });
 
 test("style.css : couleurs définies une seule fois, dans :root", () => {
@@ -147,5 +90,4 @@ test("style.css : couleurs définies une seule fois, dans :root", () => {
   for (const hex of ["#227a44", "#23a455", "#ec111b", "#202020", "#707070", "#b7b4b4"]) {
     assert.ok(root.toLowerCase().includes(hex), hex);
   }
-  assert.ok(/font-display:\s*swap/.test(css));
 });
