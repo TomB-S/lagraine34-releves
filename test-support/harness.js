@@ -110,3 +110,21 @@ export function appTest(name, optionsOrFn, maybeFn) {
     }
   });
 }
+
+// Requête HTTP brute (chemin envoyé tel quel, corps en morceaux possible), pour
+// ce que fetch normalise ou refuse d'envoyer.
+import http from "node:http";
+
+export function rawRequest(base, { method = "GET", path = "/", headers = {}, chunks } = {}) {
+  const { hostname, port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    const req = http.request({ hostname, port, method, path, headers, agent: false }, (res) => {
+      const parts = [];
+      res.on("data", (part) => parts.push(part));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(parts) }));
+    });
+    req.on("error", reject);
+    for (const chunk of chunks ?? []) req.write(chunk);
+    req.end();
+  });
+}
