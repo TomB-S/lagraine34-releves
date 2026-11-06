@@ -14,7 +14,7 @@ function envNumber(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-// Session limits: inactivity delay and absolute maximum age.
+// Session limits: inactivity delay and absolute maximum hour.
 const IDLE_MS = envNumber("SESSION_IDLE_MINUTES", 20) * 60_000;
 const MAX_MS = envNumber("SESSION_MAX_HOURS", 8) * 3_600_000;
 // Secure cookies only make sense over HTTPS, so this is opt-in (localhost is HTTP).
@@ -52,7 +52,9 @@ const loginFailures = new Map();
 function loginBlockedUntil(ip, now = Date.now()) {
   const entry = loginFailures.get(ip);
   if (!entry || now - entry.windowStart >= LOGIN_WINDOW_MS) return 0;
-  return entry.count >= LOGIN_MAX_FAILURES ? entry.windowStart + LOGIN_WINDOW_MS : 0;
+  return entry.count >= LOGIN_MAX_FAILURES
+    ? entry.windowStart + LOGIN_WINDOW_MS
+    : 0;
 }
 
 function recordLoginFailure(ip, now = Date.now()) {
@@ -141,8 +143,12 @@ async function fetchStatement(sessionToken, startTime, endTime) {
   const accounts = await (await api("/self/accounts", sessionToken)).json();
   const accountType = accounts[0].type.internalName;
 
-  const totals = await (await api(`/self/accounts/${accountType}?${period}`, sessionToken)).json();
-  const entries = await (await api(`/self/accounts/${accountType}/history?${period}`, sessionToken)).json();
+  const totals = await (
+    await api(`/self/accounts/${accountType}?${period}`, sessionToken)
+  ).json();
+  const entries = await (
+    await api(`/self/accounts/${accountType}/history?${period}`, sessionToken)
+  ).json();
 
   return { from, to, totals, entries };
 }
@@ -170,31 +176,45 @@ function htmlPage(title, body) {
 }
 
 function renderLoginForm() {
-  return htmlPage("Connexion", `<h1>Connexion</h1>
+  return htmlPage(
+    "Connexion",
+    `<h1>Connexion</h1>
   <form method="post" action="/connexion">
     <p><label>Identifiant : <input type="text" name="login" required autofocus></label></p>
     <p><label>Mot de passe : <input type="password" name="password" required></label></p>
     <p><button type="submit">Se connecter</button></p>
-  </form>`);
+  </form>`,
+  );
 }
 
 function renderLoginFailed() {
-  return htmlPage("Connexion échouée", `<h1>Connexion échouée</h1>
+  return htmlPage(
+    "Connexion échouée",
+    `<h1>Connexion échouée</h1>
   <p>Identifiant ou mot de passe incorrect.</p>
-  <p><a href="/">Réessayer</a></p>`);
+  <p><a href="/">Réessayer</a></p>`,
+  );
 }
 
 function renderTooManyAttempts(retryAfterSeconds) {
   const minutes = Math.ceil(retryAfterSeconds / 60);
-  return htmlPage("Trop de tentatives", `<h1>Trop de tentatives</h1>
-  <p>Trop d'échecs de connexion depuis votre adresse. Réessayez dans ${minutes} minute${minutes > 1 ? "s" : ""}.</p>`);
+  return htmlPage(
+    "Trop de tentatives",
+    `<h1>Trop de tentatives</h1>
+  <p>Trop d'échecs de connexion depuis votre adresse. Réessayez dans ${minutes} minute${minutes > 1 ? "s" : ""}.</p>`,
+  );
 }
 
 function renderForbidden(message, csrfToken) {
-  const back = csrfToken ? `<p><a href="/filtres">Retour aux filtres</a></p>` : `<p><a href="/">Retour</a></p>`;
-  return htmlPage("Requête refusée", `<h1>Requête refusée</h1>
+  const back = csrfToken
+    ? `<p><a href="/filtres">Retour aux filtres</a></p>`
+    : `<p><a href="/">Retour</a></p>`;
+  return htmlPage(
+    "Requête refusée",
+    `<h1>Requête refusée</h1>
   <p>${escapeHtml(message)}</p>
-  ${back}`);
+  ${back}`,
+  );
 }
 
 // Logout is a POST (a link must not be able to log someone out), so it is a
@@ -210,13 +230,18 @@ function renderAccessDenied(csrfToken) {
   const links = csrfToken
     ? `<p><a href="/filtres">Retour</a></p>\n  ${logoutForm(csrfToken)}`
     : `<p><a href="/">Retour</a></p>`;
-  return htmlPage("Accès refusé", `<h1>Accès refusé</h1>
+  return htmlPage(
+    "Accès refusé",
+    `<h1>Accès refusé</h1>
   <p>Votre compte n'a pas l'autorisation d'utiliser cet outil.</p>
-  ${links}`);
+  ${links}`,
+  );
 }
 
 function renderFilters(csrfToken, error) {
-  return htmlPage("Choisir la plage horaire", `<h1>Choisir la plage horaire</h1>
+  return htmlPage(
+    "Choisir la plage horaire",
+    `<h1>Choisir la plage horaire</h1>
   ${error ? `<p>${escapeHtml(error)}</p>` : ""}
   <form method="post" action="/releve">
     <input type="hidden" name="csrf" value="${escapeHtml(csrfToken)}">
@@ -224,7 +249,8 @@ function renderFilters(csrfToken, error) {
     <p><label>Fin : <input type="time" name="end" value="23:59" required></label></p>
     <p><button type="submit">Voir le relevé</button></p>
   </form>
-  ${logoutForm(csrfToken)}`);
+  ${logoutForm(csrfToken)}`,
+  );
 }
 
 function renderStatement({ from, to, totals, entries }, csrfToken) {
@@ -238,7 +264,9 @@ function renderStatement({ from, to, totals, entries }, csrfToken) {
 
   const { incoming, outgoing } = totals.status;
 
-  return htmlPage("Relevé", `<h1>Relevé du ${from.toFormat("dd/MM/yyyy")}</h1>
+  return htmlPage(
+    "Relevé",
+    `<h1>Relevé du ${from.toFormat("dd/MM/yyyy")}</h1>
   <p>De ${from.toFormat("HH:mm")} à ${to.toFormat("HH:mm")}</p>
   <ul>
       ${rows || "<li>Aucune transaction sur cette plage</li>"}
@@ -246,11 +274,15 @@ function renderStatement({ from, to, totals, entries }, csrfToken) {
   <p>Encaissé : ${escapeHtml(incoming.sum)} (${incoming.count} transactions)</p>
   <p>Sorti : ${escapeHtml(outgoing.sum)} (${outgoing.count} transactions)</p>
   <p><a href="/filtres">Changer la plage horaire</a></p>
-  ${logoutForm(csrfToken)}`);
+  ${logoutForm(csrfToken)}`,
+  );
 }
 
 function send(res, status, contentType, body, headers = {}) {
-  res.writeHead(status, { "Content-Type": `${contentType}; charset=utf-8`, ...headers });
+  res.writeHead(status, {
+    "Content-Type": `${contentType}; charset=utf-8`,
+    ...headers,
+  });
   res.end(body);
 }
 
@@ -375,7 +407,10 @@ const server = http.createServer(async (req, res) => {
   // The login page posts to /connexion, whose Origin check needs a usable
   // Origin header: browsers send "Origin: null" on form POSTs under
   // no-referrer, so this one page uses same-origin (still no referrer leaves the site).
-  res.setHeader("Referrer-Policy", route === "GET /" ? "same-origin" : "no-referrer");
+  res.setHeader(
+    "Referrer-Policy",
+    route === "GET /" ? "same-origin" : "no-referrer",
+  );
   // Statements must not stay in any cache nor in the back button.
   res.setHeader("Cache-Control", "no-store");
   if (COOKIE_SECURE) {
@@ -390,7 +425,12 @@ const server = http.createServer(async (req, res) => {
 
       case "POST /connexion": {
         if (!isSameOrigin(req)) {
-          send(res, 403, "text/html", renderForbidden("Origine de la requête non autorisée."));
+          send(
+            res,
+            403,
+            "text/html",
+            renderForbidden("Origine de la requête non autorisée."),
+          );
           return;
         }
 
@@ -464,7 +504,15 @@ const server = http.createServer(async (req, res) => {
 
         const form = new URLSearchParams(await readBody(req));
         if (!isValidCsrf(session.session, form.get("csrf"))) {
-          send(res, 403, "text/html", renderForbidden("Jeton de sécurité absent ou invalide. Retournez aux filtres et recommencez.", csrfToken));
+          send(
+            res,
+            403,
+            "text/html",
+            renderForbidden(
+              "Jeton de sécurité absent ou invalide. Retournez aux filtres et recommencez.",
+              csrfToken,
+            ),
+          );
           return;
         }
 
@@ -472,16 +520,33 @@ const server = http.createServer(async (req, res) => {
         const endTime = parseTime(form.get("end"));
 
         if (!startTime || !endTime) {
-          send(res, 400, "text/html", renderFilters(csrfToken, "Heures invalides."));
+          send(
+            res,
+            400,
+            "text/html",
+            renderFilters(csrfToken, "Heures invalides."),
+          );
           return;
         }
         if (DateTime.fromObject(startTime) >= DateTime.fromObject(endTime)) {
-          send(res, 400, "text/html", renderFilters(csrfToken, "L'heure de fin doit être après l'heure de début."));
+          send(
+            res,
+            400,
+            "text/html",
+            renderFilters(
+              csrfToken,
+              "L'heure de fin doit être après l'heure de début.",
+            ),
+          );
           return;
         }
 
         try {
-          const statement = await fetchStatement(session.session.sessionToken, startTime, endTime);
+          const statement = await fetchStatement(
+            session.session.sessionToken,
+            startTime,
+            endTime,
+          );
           send(res, 200, "text/html", renderStatement(statement, csrfToken));
         } catch (error) {
           if (error instanceof LoginError) {
@@ -510,7 +575,15 @@ const server = http.createServer(async (req, res) => {
 
         const form = new URLSearchParams(await readBody(req));
         if (!isValidCsrf(session.session, form.get("csrf"))) {
-          send(res, 403, "text/html", renderForbidden("Jeton de sécurité absent ou invalide. La session n'a pas été fermée.", session.session.csrfToken));
+          send(
+            res,
+            403,
+            "text/html",
+            renderForbidden(
+              "Jeton de sécurité absent ou invalide. La session n'a pas été fermée.",
+              session.session.csrfToken,
+            ),
+          );
           return;
         }
 
@@ -523,9 +596,15 @@ const server = http.createServer(async (req, res) => {
 
       case "GET /deconnexion":
         // Logging out must not be triggerable by a simple link or image.
-        send(res, 405, "text/plain", "Méthode non autorisée : la déconnexion se fait par POST", {
-          Allow: "POST",
-        });
+        send(
+          res,
+          405,
+          "text/plain",
+          "Méthode non autorisée : la déconnexion se fait par POST",
+          {
+            Allow: "POST",
+          },
+        );
         return;
 
       default:
@@ -533,7 +612,9 @@ const server = http.createServer(async (req, res) => {
     }
   } catch (error) {
     if (error instanceof BodyTooLargeError) {
-      send(res, 413, "text/plain", "Requête trop volumineuse", { Connection: "close" });
+      send(res, 413, "text/plain", "Requête trop volumineuse", {
+        Connection: "close",
+      });
       return;
     }
     console.error(error);
