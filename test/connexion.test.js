@@ -340,7 +340,7 @@ appTest("GET /deconnexion : 405 avec Allow: POST, session conservée", async (ap
 for (const path of ["/releve", "/releve.pdf"]) {
   appTest(`403 de Cyclos sur ${path} : page « Accès refusé », session conservée`, async (app) => {
     const csrf = await app.loggedIn();
-    app.cyclos.force("GET /self/accounts", 403);
+    app.cyclos.force("GET /self/accounts/membre", 403);
     const res = await app.request(path, { method: "POST", form: { csrf, ...RANGE } });
     assert.equal(res.status, 403);
     assert.match(res.headers.get("content-type"), /^text\/html/);

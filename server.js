@@ -55,7 +55,14 @@ class LoginError extends Error {}
 
 // Cyclos answered 403: the account is known but not allowed to do this.
 // This is not a login failure, the local session must be kept.
-class AccessDeniedError extends Error {}
+class AccessDeniedError extends Error {
+  // `noMoneyAccount`: the 403 comes from GET /self/accounts, which is what
+  // Cyclos answers to a user who has no money account (not a merchant).
+  constructor(message, { noMoneyAccount = false } = {}) {
+    super(message);
+    this.noMoneyAccount = noMoneyAccount;
+  }
+}
 
 // A POST body is larger than MAX_BODY_BYTES.
 class BodyTooLargeError extends Error {}
@@ -113,7 +120,9 @@ async function api(path, sessionToken, options = {}) {
     throw new LoginError(`401 on ${path}`);
   }
   if (response.status === 403) {
-    throw new AccessDeniedError(`403 on ${path}`);
+    throw new AccessDeniedError(`403 on ${path}`, {
+      noMoneyAccount: path === "/self/accounts" && !options.method,
+    });
   }
   if (!response.ok) {
     throw new Error(`${response.status} on ${path}`);
@@ -487,6 +496,18 @@ function renderAccessDenied(csrfToken) {
   );
 }
 
+// Account without a money account (Cyclos refuses GET /self/accounts). The
+// session stays open: the user can go back or log out and use another account.
+function renderNoMoneyAccount(csrfToken) {
+  return htmlPage(
+    "Compte sans compte de monnaie",
+    `<h1>Compte sans compte de monnaie</h1>
+  ${errorMessage("Ce compte n'a pas de compte de monnaie. Il ne peut pas servir à consulter un relevé. Connectez-vous avec un compte commerçant.")}
+  <p><a href="/filtres">Retour</a></p>
+  ${logoutForm(csrfToken)}`,
+  );
+}
+
 // `values` are the start/end strings to put in the fields: either computed
 // by presetRange(), or (after a validation error) exactly what the user typed.
 function renderFilters(csrfToken, values, error) {
@@ -727,7 +748,14 @@ async function loadStatement(req, res, { id, session }) {
     }
     if (error instanceof AccessDeniedError) {
       // The account is not allowed to do this, but the session itself is fine.
-      send(res, 403, "text/html", renderAccessDenied(csrfToken));
+      send(
+        res,
+        403,
+        "text/html",
+        error.noMoneyAccount
+          ? renderNoMoneyAccount(csrfToken)
+          : renderAccessDenied(csrfToken),
+      );
       return null;
     }
     throw error;
