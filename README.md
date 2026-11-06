@@ -27,15 +27,40 @@ Deux dépendances seulement : `luxon` (dates) et `pdfkit` (PDF, version exacte).
 ## Lancement
 
 ```sh
-node server.js
+npm start
 ```
 
-Puis ouvrir <http://localhost:3000>. Sans configuration, l'outil interroge la
+(équivalent de `node server.js`). Puis ouvrir <http://localhost:3000>. Sans configuration, l'outil interroge la
 démo publique de Cyclos (`https://demo.cyclos.org/api`) ; pour un usage réel,
 renseigner `CYCLOS_BASE_URL`.
 
 ```sh
-CYCLOS_BASE_URL=https://cyclos.example.org/api PORT=8080 node server.js
+CYCLOS_BASE_URL=https://cyclos.example.org/api PORT=8080 npm start
+```
+
+Le serveur **ne lit aucun fichier `.env`** : les variables se placent devant la
+commande (comme ci-dessus) ou s'exportent dans le shell (`export NOM=valeur`).
+[.env.example](.env.example) liste tous les noms avec des valeurs d'exemple,
+à titre de mémo seulement.
+
+## Scripts
+
+| Commande | Effet |
+| --- | --- |
+| `npm start` | Démarre le serveur (`node server.js`) |
+| `npm test` | Lance les tests (`node --test`) |
+
+## Arborescence
+
+```
+server.js            serveur HTTP, routes, sessions, appels Cyclos, pages HTML
+ticket-pdf.js        génération du ticket en PDF (pdfkit)
+style.css            feuille de style unique (charte La Graine 34)
+logo-lagraine34.png  logo, servi sur /logo.png et inséré dans le PDF
+fonts/               polices Roboto et Voltaire (woff2) et leurs licences
+test/                tests (node:test), un fichier par thème
+test-support/        faux Cyclos, harnais de test, lecteur de texte PDF
+.env.example         mémo des variables d'environnement (non lu par le serveur)
 ```
 
 ## Variables d'environnement
@@ -43,7 +68,7 @@ CYCLOS_BASE_URL=https://cyclos.example.org/api PORT=8080 node server.js
 | Nom | Rôle | Valeur par défaut |
 | --- | --- | --- |
 | `CYCLOS_BASE_URL` | Adresse de l'API Cyclos (avec `/api`) | `https://demo.cyclos.org/api` |
-| `CYCLOS_CHANNEL` | Canal Cyclos, envoyé dans l'en-tête `Channel` sur tous les appels (connexion, historique, totaux, déconnexion). Lettres, chiffres, `-` et `_`, 32 caractères au maximum, sinon le serveur refuse de démarrer. `main` est le canal de l'interface officielle ; le canal prévu pour les outils externes devra être confirmé avec Cylaos. | aucun (en-tête non envoyé) |
+| `CYCLOS_CHANNEL` | Canal Cyclos, envoyé dans l'en-tête `Channel` sur tous les appels (connexion, historique, totaux, déconnexion). Lettres, chiffres, `-` et `_`, 32 caractères au maximum, sinon le serveur refuse de démarrer. `main` est le canal de l'interface officielle ; le canal prévu pour les outils externes devra être confirmé avec Cyclos. | aucun (en-tête non envoyé) ; au démarrage, le journal indique `Canal Cyclos : <canal>` ou `(par defaut)` |
 | `PORT` | Port d'écoute | `3000` |
 | `SESSION_IDLE_MINUTES` | Inactivité après laquelle la session se ferme | `20` |
 | `SESSION_MAX_HOURS` | Durée maximale d'une session, activité ou non | `8` |
@@ -101,6 +126,15 @@ externe, aucun vrai identifiant (les identifiants des tests sont fictifs).
 - **Adresse IP derrière un proxy** : le compteur d'échecs de connexion utilise
   l'adresse du pair TCP. Derrière un proxy inverse, tous les utilisateurs
   partagent donc le même compteur (5 échecs bloquent tout le monde).
+- **Compte professionnel et canal `main`** : selon la configuration de Cyclos,
+  un compte professionnel, ou le canal `main` (celui de l'interface
+  officielle), peut ne pas avoir le droit de lire ses comptes par l'API.
+  Cyclos répond alors 403 (ou une liste de comptes vide) à
+  `GET /self/accounts` et l'outil affiche « Accès aux comptes refusé »,
+  la session restant ouverte ; la ligne correspondante est écrite dans le
+  journal du serveur. Le canal à utiliser pour cet outil
+  (`CYCLOS_CHANNEL`) reste à confirmer avec Cyclos ; tant que ce n'est pas fait,
+  cette limite n'est pas levée.
 - **Sessions perdues au redémarrage** : sessions et compteurs sont en mémoire ;
   redémarrer le serveur déconnecte tout le monde (les jetons Cyclos restent
   valides jusqu'à leur expiration côté Cyclos).
