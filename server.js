@@ -154,21 +154,74 @@ function presetRange(preset, now = DateTime.now().setZone(ZONE)) {
   }
 }
 
-// Minimal validation of the submitted range (completed in the next step).
-function parseRange(startValue, endValue) {
-  const from = DateTime.fromFormat(startValue ?? "", INPUT_FORMAT, { zone: ZONE });
-  const to = DateTime.fromFormat(endValue ?? "", INPUT_FORMAT, { zone: ZONE });
-  if (!from.isValid || !to.isValid) return { error: "Date invalide." };
-  if (to <= from) return { error: "La fin doit être après le début." };
-  return { from, to };
+const MAX_RANGE_DAYS = 31;
+const INPUT_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+// Parses one submitted datetime-local value. `label` ("début"/"fin") is used
+// in messages. Returns { value } or { error }.
+function parseInstant(text, label) {
+  if (!INPUT_SHAPE.test(text ?? "")) {
+    return {
+      error: `Date de ${label} invalide : le format attendu est AAAA-MM-JJThh:mm (par exemple 2026-11-05T22:00).`,
+    };
+  }
+  const value = DateTime.fromFormat(text, INPUT_FORMAT, { zone: ZONE });
+  if (!value.isValid) {
+    return { error: `La date de ${label} n'existe pas dans le calendrier.` };
+  }
+  // Luxon silently moves a time that falls in a DST gap (02:30 on the spring
+  // change day becomes 03:30). If formatting back gives something else, the
+  // wall-clock time the user typed does not exist.
+  if (value.toFormat(INPUT_FORMAT) !== text) {
+    return {
+      error: `L'heure de ${label} saisie (${text.slice(8, 10)}/${text.slice(5, 7)}/${text.slice(0, 4)} à ${text.slice(11)}) n'existe pas : elle est sautée lors du passage à l'heure d'été. Choisissez une autre heure.`,
+    };
+  }
+  return { value };
 }
 
-// Statement for the merchant's chosen range (`from`/`to` are DateTimes in ZONE).
-async function fetchStatement(sessionToken, from, to) {
+// Validates the submitted range. Returns { error } or
+// { from, to, until, clamped }: `to` is the end shown to the user, `until` the
+// end sent to Cyclos (the whole last minute is included, so a range ending at
+// 23:59 contains 23:59:30), `clamped` tells that a future end was brought back to now.
+function parseRange(startText, endText, now = DateTime.now().setZone(ZONE)) {
+  const start = parseInstant(startText, "début");
+  if (start.error) return start;
+  const end = parseInstant(endText, "fin");
+  if (end.error) return end;
+
+  const from = start.value;
+  if (from > now) {
+    return { error: "Le début ne peut pas être dans le futur." };
+  }
+
+  let to = end.value;
+  let until = to.plus({ minutes: 1 }).minus({ milliseconds: 1 });
+  // A future end is accepted but cannot report anything beyond this instant.
+  const clamped = until > now;
+  if (clamped) {
+    to = now.startOf("minute");
+    until = now;
+  }
+
+  if (clamped ? until <= from : to <= from) {
+    return { error: "La fin doit être après le début." };
+  }
+  if (to > from.plus({ days: MAX_RANGE_DAYS })) {
+    return {
+      error: `La plage ne peut pas dépasser ${MAX_RANGE_DAYS} jours.`,
+    };
+  }
+  return { from, to, until, clamped };
+}
+
+// Statement for the merchant's chosen range (DateTimes in ZONE, `until` is
+// the inclusive end sent to Cyclos).
+async function fetchStatement(sessionToken, { from, to, until }) {
   const period = new URLSearchParams();
   // Cyclos expects instants, so both bounds are converted back to UTC.
   period.append("datePeriod", from.toUTC().toISO());
-  period.append("datePeriod", to.toUTC().toISO());
+  period.append("datePeriod", until.toUTC().toISO());
 
   const accounts = await (await api("/self/accounts", sessionToken)).json();
   const accountType = accounts[0].type.internalName;
@@ -602,8 +655,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const statement = await fetchStatement(
             session.session.sessionToken,
-            range.from,
-            range.to,
+            range,
           );
           send(res, 200, "text/html", renderStatement(statement, csrfToken));
         } catch (error) {
