@@ -10,6 +10,8 @@
 // a small HTTP client that keeps the session cookie.
 import http from "node:http";
 import { test, mock } from "node:test";
+// MUST stay first: it cleans the environment variables before server.js is loaded (see env-propre.js).
+import { isolerEnv } from "./env-propre.js";
 import { startServer } from "../server.js";
 import { startFakeCyclos, USER } from "./fake-cyclos.js";
 
@@ -133,14 +135,20 @@ export function appTest(name, optionsOrFn, maybeFn) {
     for (const level of ["log", "info", "warn", "error"]) {
       mock.method(console, level, (...args) => logs.push(args.map(String).join(" ")));
     }
-    const app = await setup(options);
-    app.logs = logs;
+    // The program's variables are removed for the duration of the test and put back afterwards (see env-propre.js).
+    const restaurerEnv = isolerEnv();
     try {
-      await fn(app);
+      const app = await setup(options);
+      app.logs = logs;
+      try {
+        await fn(app);
+      } finally {
+        mock.timers.reset();
+        mock.restoreAll();
+        await app.close();
+      }
     } finally {
-      mock.timers.reset();
-      mock.restoreAll();
-      await app.close();
+      restaurerEnv();
     }
   });
 }

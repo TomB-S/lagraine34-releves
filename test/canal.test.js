@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { appTest, until } from "../test-support/harness.js";
+import { envEnfant } from "../test-support/env-propre.js";
 import { startServer } from "../server.js";
 import { entry } from "../test-support/fake-cyclos.js";
 
@@ -76,7 +77,7 @@ test("CYCLOS_CHANNEL à la limite (32 caractères, tiret, soulignement) : accept
 test("node server.js avec un canal invalide : message clair, pas de pile, code 1, rien n'écoute", async () => {
   const child = spawn(process.execPath, ["server.js"], {
     cwd: new URL("../", import.meta.url),
-    env: { ...process.env, PORT: "0", CYCLOS_CHANNEL: "pas valide!" },
+    env: envEnfant({ PORT: "0", CYCLOS_CHANNEL: "pas valide!" }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -93,7 +94,7 @@ test("node server.js avec un canal invalide : message clair, pas de pile, code 1
 test("node server.js avec CYCLOS_CHANNEL=main : le journal annonce le canal", async () => {
   const child = spawn(process.execPath, ["server.js"], {
     cwd: new URL("../", import.meta.url),
-    env: { ...process.env, PORT: String(20000 + Math.floor(Math.random() * 20000)), CYCLOS_CHANNEL: "main" },
+    env: envEnfant({ PORT: String(20000 + Math.floor(Math.random() * 20000)), CYCLOS_CHANNEL: "main" }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

@@ -9,6 +9,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DateTime } from "luxon";
+// First, before server.js: removes the terminal's environment variables (HISTORY_MAX_ROWS is read when server.js is loaded).
+import "../test-support/env-propre.js";
 import {
   escapeHtml,
   formatAmount,
