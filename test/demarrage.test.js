@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { startFakeCyclos } from "../test-support/fake-cyclos.js";
+import { envEnfant } from "../test-support/env-propre.js";
 
 // ROOT: the project folder, where `node server.js` is launched.
 const ROOT = new URL("../", import.meta.url);
@@ -17,7 +18,7 @@ const ROOT = new URL("../", import.meta.url);
 function run(args, env) {
   const child = spawn(process.execPath, args, {
     cwd: ROOT,
-    env: { ...process.env, CYCLOS_CHANNEL: "", ...env },
+    env: envEnfant({ CYCLOS_CHANNEL: "", ...env }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
